@@ -16,9 +16,13 @@ from vox.agent.groq_tools import (
     FolderBound,
     GroqRegistry,
     PlannedAction,
+    ScrollBound,
+    ScrollRequest,
     TypingBound,
     TypingRequest,
     WebsiteArgs,
+    WindowActionBound,
+    WindowActionRequest,
 )
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
@@ -86,6 +90,26 @@ class FakeBackend:
         self.calls.append(("typing", target.title, text))
         return ToolResult(ok=True, evidence="Input sent to the selected window.")
 
+    def scroll(self, target, amount):
+        self.calls.append(("scroll", target.title, amount))
+        return ToolResult(ok=True, evidence="Scroll sent to the selected window.")
+
+    def minimize(self, target):
+        self.calls.append(("minimize", target.title))
+        return ToolResult(ok=True, evidence="Selected window minimized.")
+
+    def maximize(self, target):
+        self.calls.append(("maximize", target.title))
+        return ToolResult(ok=True, evidence="Selected window maximized.")
+
+    def restore(self, target):
+        self.calls.append(("restore", target.title))
+        return ToolResult(ok=True, evidence="Selected window restored.")
+
+    def close_window(self, target):
+        self.calls.append(("close", target.title))
+        return ToolResult(ok=True, evidence="Close request sent to the selected window.")
+
 
 def test_chat_and_transcription_wire_formats():
     transport = Transport(response(tool_message()))
@@ -101,6 +125,11 @@ def test_chat_and_transcription_wire_formats():
         "open_website",
         "open_folder",
         "type_text",
+        "scroll",
+        "minimize_window",
+        "maximize_window",
+        "restore_window",
+        "close_window",
     }
     transport.data = b'{"text":"Open Notepad"}'
     wav = b"RIFF" + b"x" * 50
@@ -280,6 +309,43 @@ def test_typing_request_binds_selected_window_and_text_is_single_use():
 def test_typing_request_rejects_control_and_bidi_characters(text):
     with pytest.raises(ProviderError):
         GroqRegistry(FakeBackend()).plan(tool_message("type_text", json.dumps({"text": text})))
+
+
+def test_scroll_binds_selected_window_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(
+        tool_message("scroll", json.dumps({"amount": -3, "target_hint": "Notepad"}))
+    )
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, ScrollRequest)
+    window = backend.list_windows()[0]
+    bound = registry.bind_scroll(action, window)
+    assert isinstance(bound.args, ScrollBound) and bound.args.window == window
+    approval = registry.request_approval(bound)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(bound, approval).ok
+    assert not registry.execute(bound, approval).ok
+    assert ("scroll", "Notepad", -3) in backend.calls
+
+
+def test_window_actions_bind_selected_window():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    window = backend.list_windows()[0]
+    for name in ("minimize_window", "maximize_window", "restore_window", "close_window"):
+        action = registry.plan(tool_message(name, json.dumps({"target_hint": "Notepad"})))
+        assert action.tier is Tier.CONFIRM and isinstance(action.args, WindowActionRequest)
+        bound = registry.bind_window_action(action, window)
+        assert isinstance(bound.args, WindowActionBound) and bound.args.window == window
+        approval = registry.request_approval(bound)
+        assert registry.resolve_approval(approval, True)
+        assert registry.execute(bound, approval).ok
+        assert not registry.execute(bound, approval).ok
+
+
+def test_scroll_rejects_out_of_range_amount():
+    with pytest.raises(ProviderError):
+        GroqRegistry(FakeBackend()).plan(tool_message("scroll", json.dumps({"amount": 1000})))
 
 
 @pytest.mark.parametrize(

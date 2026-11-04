@@ -245,6 +245,11 @@ class WindowsWindows:
             [DWORD, ctypes.POINTER(_INPUT), ctypes.c_int],
             DWORD,
         )
+        u.ShowWindow.argtypes, u.ShowWindow.restype = [HANDLE, ctypes.c_int], BOOL
+        u.PostMessageW.argtypes, u.PostMessageW.restype = (
+            [HANDLE, ctypes.c_uint, ctypes.c_size_t, ctypes.c_size_t],
+            BOOL,
+        )
         k.OpenProcess.argtypes, k.OpenProcess.restype = [DWORD, BOOL, DWORD], HANDLE
         k.GetProcessTimes.argtypes = [
             HANDLE,
@@ -371,4 +376,58 @@ class WindowsWindows:
         return ToolResult(
             ok=True,
             evidence="Input was sent to the selected window; the resulting text was not verified.",
+        )
+
+    def scroll(self, target: WindowRef, amount: int) -> ToolResult:
+        if self.snapshot(target.hwnd) != target:
+            return ToolResult(
+                ok=False,
+                evidence="Selected window or focused control changed. No scroll was sent.",
+            )
+        WHEEL_DELTA = 120
+        for _ in range(abs(amount)):
+            direction = 1 if amount > 0 else -1
+            item = _INPUT()
+            item.kind = 0
+            item.value.mouse = _MOUSEINPUT(0, 0, direction * WHEEL_DELTA, 0x0800, 0, 0)
+            batch = (_INPUT * 1)(item)
+            sent = self.user.SendInput(1, batch, ctypes.sizeof(_INPUT))
+            if sent != 1:
+                return ToolResult(
+                    ok=False, evidence="Windows accepted only part of the scroll input."
+                )
+        return ToolResult(
+            ok=True,
+            evidence="Scroll input was sent to the selected window; the result was not verified.",
+        )
+
+    def minimize(self, target: WindowRef) -> ToolResult:
+        if self.snapshot(target.hwnd) != target:
+            return ToolResult(ok=False, evidence="Selected window changed. Nothing was minimized.")
+        if not self.user.ShowWindow(target.hwnd, 6):
+            return ToolResult(ok=False, evidence="Windows would not minimize the selected window.")
+        return ToolResult(ok=True, evidence="Selected window was minimized.")
+
+    def maximize(self, target: WindowRef) -> ToolResult:
+        if self.snapshot(target.hwnd) != target:
+            return ToolResult(ok=False, evidence="Selected window changed. Nothing was maximized.")
+        if not self.user.ShowWindow(target.hwnd, 3):
+            return ToolResult(ok=False, evidence="Windows would not maximize the selected window.")
+        return ToolResult(ok=True, evidence="Selected window was maximized.")
+
+    def restore(self, target: WindowRef) -> ToolResult:
+        if self.snapshot(target.hwnd) != target:
+            return ToolResult(ok=False, evidence="Selected window changed. Nothing was restored.")
+        if not self.user.ShowWindow(target.hwnd, 9):
+            return ToolResult(ok=False, evidence="Windows would not restore the selected window.")
+        return ToolResult(ok=True, evidence="Selected window was restored.")
+
+    def close_window(self, target: WindowRef) -> ToolResult:
+        if self.snapshot(target.hwnd) != target:
+            return ToolResult(ok=False, evidence="Selected window changed. Nothing was closed.")
+        if not self.user.PostMessageW(target.hwnd, 0x10, 0, 0):
+            return ToolResult(ok=False, evidence="Windows would not accept the close request.")
+        return ToolResult(
+            ok=True,
+            evidence="Close request was sent to the selected window; the window may ask for confirmation.",
         )

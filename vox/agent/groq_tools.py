@@ -135,6 +135,34 @@ class TypingBound(BaseModel):
         return TypingRequest(text=value).text
 
 
+class ScrollRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    amount: int = Field(
+        ge=-10, le=10, description="Scroll lines; negative scrolls up, positive scrolls down."
+    )
+    target_hint: str = Field(
+        default="", max_length=120, description="The app or window mentioned by the user, if any."
+    )
+
+
+class ScrollBound(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    amount: int
+    window: WindowRef
+
+
+class WindowActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    target_hint: str = Field(
+        default="", max_length=120, description="The app or window mentioned by the user, if any."
+    )
+
+
+class WindowActionBound(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    window: WindowRef
+
+
 @dataclass(frozen=True)
 class PlannedAction:
     name: str
@@ -154,6 +182,16 @@ class PlannedAction:
             return f"Type this exact text in the window you select:\n{self.args.text}{hint}"
         if isinstance(self.args, TypingBound):
             return f"Type this exact text in {self.args.window.title}:\n{self.args.text}"
+        if isinstance(self.args, ScrollRequest):
+            hint = f"\nRequested app: {self.args.target_hint}" if self.args.target_hint else ""
+            return f"Scroll {self.args.amount:+d} lines in the window you select.{hint}"
+        if isinstance(self.args, ScrollBound):
+            return f"Scroll {self.args.amount:+d} lines in {self.args.window.title}."
+        if isinstance(self.args, WindowActionRequest):
+            hint = f"\nRequested app: {self.args.target_hint}" if self.args.target_hint else ""
+            return f"Control the window you select.{hint}"
+        if isinstance(self.args, WindowActionBound):
+            return f"Control the selected window: {self.args.window.title}."
         return "Unsupported action."
 
 
@@ -164,6 +202,11 @@ class DesktopBackend(Protocol):
     def open_folder(self, path: str) -> ToolResult: ...
     def list_windows(self) -> list[WindowRef]: ...
     def type_text(self, target: WindowRef, text: str) -> ToolResult: ...
+    def scroll(self, target: WindowRef, amount: int) -> ToolResult: ...
+    def minimize(self, target: WindowRef) -> ToolResult: ...
+    def maximize(self, target: WindowRef) -> ToolResult: ...
+    def restore(self, target: WindowRef) -> ToolResult: ...
+    def close_window(self, target: WindowRef) -> ToolResult: ...
 
 
 class WindowsDesktopBackend:
@@ -219,6 +262,46 @@ class WindowsDesktopBackend:
         except OSError:
             return ToolResult(ok=False, evidence="Windows input is unavailable. No text was sent.")
 
+    def scroll(self, target: WindowRef, amount: int) -> ToolResult:
+        try:
+            return WindowsWindows().scroll(target, amount)
+        except OSError:
+            return ToolResult(
+                ok=False, evidence="Windows scroll is unavailable. No scroll was sent."
+            )
+
+    def minimize(self, target: WindowRef) -> ToolResult:
+        try:
+            return WindowsWindows().minimize(target)
+        except OSError:
+            return ToolResult(
+                ok=False, evidence="Windows window control is unavailable. Nothing was minimized."
+            )
+
+    def maximize(self, target: WindowRef) -> ToolResult:
+        try:
+            return WindowsWindows().maximize(target)
+        except OSError:
+            return ToolResult(
+                ok=False, evidence="Windows window control is unavailable. Nothing was maximized."
+            )
+
+    def restore(self, target: WindowRef) -> ToolResult:
+        try:
+            return WindowsWindows().restore(target)
+        except OSError:
+            return ToolResult(
+                ok=False, evidence="Windows window control is unavailable. Nothing was restored."
+            )
+
+    def close_window(self, target: WindowRef) -> ToolResult:
+        try:
+            return WindowsWindows().close_window(target)
+        except OSError:
+            return ToolResult(
+                ok=False, evidence="Windows window control is unavailable. Nothing was closed."
+            )
+
 
 class GroqRegistry:
     def __init__(self, backend: DesktopBackend) -> None:
@@ -230,6 +313,12 @@ class GroqRegistry:
             (action.name == "open_website" and isinstance(action.args, WebsiteArgs))
             or (action.name == "open_folder" and isinstance(action.args, FolderBound))
             or (action.name == "type_text" and isinstance(action.args, TypingBound))
+            or (action.name == "scroll" and isinstance(action.args, ScrollBound))
+            or (
+                action.name
+                in ("minimize_window", "maximize_window", "restore_window", "close_window")
+                and isinstance(action.args, WindowActionBound)
+            )
         )
         if not allowed or action.tier is not Tier.CONFIRM:
             raise ValueError("Action does not support approval")
@@ -248,6 +337,27 @@ class GroqRegistry:
         return PlannedAction(
             "type_text", TypingBound(text=action.args.text, window=window), Tier.CONFIRM
         )
+
+    def bind_scroll(self, action: PlannedAction, window: WindowRef) -> PlannedAction:
+        if (
+            action.name != "scroll"
+            or action.tier is not Tier.CONFIRM
+            or not isinstance(action.args, ScrollRequest)
+        ):
+            raise ValueError("Action is not a scroll request")
+        return PlannedAction(
+            "scroll", ScrollBound(amount=action.args.amount, window=window), Tier.CONFIRM
+        )
+
+    def bind_window_action(self, action: PlannedAction, window: WindowRef) -> PlannedAction:
+        if (
+            action.name
+            not in ("minimize_window", "maximize_window", "restore_window", "close_window")
+            or action.tier is not Tier.CONFIRM
+            or not isinstance(action.args, WindowActionRequest)
+        ):
+            raise ValueError("Action is not a window control request")
+        return PlannedAction(action.name, WindowActionBound(window=window), Tier.CONFIRM)
 
     def resolve_approval(self, approval_id: str, approve: bool) -> bool:
         return self.approvals.resolve(approval_id, approve=approve, via=Via.CLICK)
@@ -284,6 +394,46 @@ class GroqRegistry:
                     "name": "type_text",
                     "description": "Type the exact requested text into a window selected and approved by the user. Cannot press Enter or Tab.",
                     "parameters": TypingRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "scroll",
+                    "description": "Scroll up or down in a window selected and approved by the user.",
+                    "parameters": ScrollRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "minimize_window",
+                    "description": "Minimize a window selected and approved by the user.",
+                    "parameters": WindowActionRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "maximize_window",
+                    "description": "Maximize a window selected and approved by the user.",
+                    "parameters": WindowActionRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "restore_window",
+                    "description": "Restore a minimized or maximized window selected and approved by the user.",
+                    "parameters": WindowActionRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "close_window",
+                    "description": "Send a close request to a window selected and approved by the user. The window may ask for confirmation.",
+                    "parameters": WindowActionRequest.model_json_schema(),
                 },
             },
         ]
@@ -330,6 +480,17 @@ class GroqRegistry:
                 )
             if call.get("name") == "type_text":
                 return PlannedAction("type_text", TypingRequest.model_validate(raw), Tier.CONFIRM)
+            if call.get("name") == "scroll":
+                return PlannedAction("scroll", ScrollRequest.model_validate(raw), Tier.CONFIRM)
+            if call.get("name") in (
+                "minimize_window",
+                "maximize_window",
+                "restore_window",
+                "close_window",
+            ):
+                return PlannedAction(
+                    call["name"], WindowActionRequest.model_validate(raw), Tier.CONFIRM
+                )
         except (ValueError, ValidationError, OSError) as exc:
             raise ProviderError("Groq returned invalid or unsupported action arguments.") from exc
         raise ProviderError("That action is not supported.")
@@ -346,6 +507,12 @@ class GroqRegistry:
             (action.name == "open_website" and isinstance(action.args, WebsiteArgs))
             or (action.name == "open_folder" and isinstance(action.args, FolderBound))
             or (action.name == "type_text" and isinstance(action.args, TypingBound))
+            or (action.name == "scroll" and isinstance(action.args, ScrollBound))
+            or (
+                action.name
+                in ("minimize_window", "maximize_window", "restore_window", "close_window")
+                and isinstance(action.args, WindowActionBound)
+            )
         )
         if allowed and action.tier is Tier.CONFIRM:
             if not approval_id or not self.approvals.consume(
@@ -360,4 +527,15 @@ class GroqRegistry:
                 return self._backend.open_folder(action.args.path)
             if isinstance(action.args, TypingBound):
                 return self._backend.type_text(action.args.window, action.args.text)
+            if isinstance(action.args, ScrollBound):
+                return self._backend.scroll(action.args.window, action.args.amount)
+            if isinstance(action.args, WindowActionBound):
+                if action.name == "minimize_window":
+                    return self._backend.minimize(action.args.window)
+                if action.name == "maximize_window":
+                    return self._backend.maximize(action.args.window)
+                if action.name == "restore_window":
+                    return self._backend.restore(action.args.window)
+                if action.name == "close_window":
+                    return self._backend.close_window(action.args.window)
         return ToolResult(ok=False, evidence="Unsupported action.")

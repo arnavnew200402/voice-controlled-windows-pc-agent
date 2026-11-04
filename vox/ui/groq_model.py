@@ -10,7 +10,12 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from vox.agent.auth_storage import StorageError
-from vox.agent.groq_tools import PlannedAction, TypingRequest
+from vox.agent.groq_tools import (
+    PlannedAction,
+    ScrollRequest,
+    TypingRequest,
+    WindowActionRequest,
+)
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
 from vox.agent.windows_control import WindowRef
@@ -114,7 +119,9 @@ class GroqViewModel(QObject):
 
     @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
     def needsWindow(self) -> bool:
-        return bool(self._pending and isinstance(self._pending.args, TypingRequest))
+        if not self._pending:
+            return False
+        return isinstance(self._pending.args, (TypingRequest, ScrollRequest, WindowActionRequest))
 
     @Property("QStringList", notify=changed)  # type: ignore[call-arg, arg-type]
     def windowChoices(self) -> list[str]:
@@ -255,18 +262,25 @@ class GroqViewModel(QObject):
         if not self._pending or self._busy:
             return
         action, approval_id = self._pending, self._approval_id
-        if isinstance(action.args, TypingRequest):
+        if self.needsWindow:
             if not 0 <= self._selected_window < len(self._windows):
-                self._status = "Select a target window and review the text before confirming."
+                self._status = "Select a target window before confirming."
                 self.changed.emit()
                 return
+            window = self._windows[self._selected_window]
             try:
-                action = self._services.registry.bind_typing(
-                    action, self._windows[self._selected_window]
-                )
+                if isinstance(action.args, TypingRequest):
+                    action = self._services.registry.bind_typing(action, window)
+                elif isinstance(action.args, ScrollRequest):
+                    action = self._services.registry.bind_scroll(action, window)
+                elif isinstance(action.args, WindowActionRequest):
+                    action = self._services.registry.bind_window_action(action, window)
+                else:
+                    self._error("Unsupported window action; nothing was performed.")
+                    return
                 approval_id = self._services.registry.request_approval(action)
             except (ValueError, RuntimeError):
-                self._error("Could not bind the selected window; no text was sent.")
+                self._error("Could not bind the selected window; no action was performed.")
                 return
         if not approval_id:
             self._error("Approval is unavailable. No action was performed.")
@@ -346,12 +360,21 @@ class GroqViewModel(QObject):
             elif outcome.pending is not None:
                 self._pending = outcome.pending
                 self._state, self._title = "approval", "Confirmation required"
-                if isinstance(outcome.pending.args, TypingRequest):
+                if self.needsWindow:
                     self._approval_id = None
                     self.refreshWindows()
-                    self._detail = self._status = (
-                        "Choose the exact window and review the text. Position its text cursor first."
-                    )
+                    if isinstance(outcome.pending.args, TypingRequest):
+                        self._detail = self._status = (
+                            "Choose the exact window and review the text. Position its text cursor first."
+                        )
+                    elif isinstance(outcome.pending.args, ScrollRequest):
+                        self._detail = self._status = (
+                            "Select the window where you want to scroll, then confirm."
+                        )
+                    else:
+                        self._detail = self._status = (
+                            "Select the window you want to control, then confirm."
+                        )
                 else:
                     try:
                         self._approval_id = self._services.registry.request_approval(

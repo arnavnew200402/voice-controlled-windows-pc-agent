@@ -1,6 +1,6 @@
 # Vox — Windows voice control (early access)
 
-Vox now has a **real Groq-powered push-to-talk path**, not a simulated provider. It is not yet a complete general-purpose Windows agent: the enabled actions are opening Notepad, Calculator, Paint, HTTPS websites, local folders, and typing exact text into a user-selected visible window. Website, folder and typing actions require explicit click approval. No general shell, file deletion, arbitrary app launch, screen reading or computer-use tools are enabled.
+Vox now has a **real Groq-powered push-to-talk path**, not a simulated provider. It is not yet a complete general-purpose Windows agent: the enabled actions are opening Notepad, Calculator, Paint, HTTPS websites, local folders, typing exact text, scrolling, and minimizing/maximizing/restoring/closing windows selected by the user. Website, folder, typing, scroll and window-management actions require explicit click approval. No general shell, file deletion, arbitrary app launch, screen reading or computer-use tools are enabled.
 
 ## Run the Groq voice UI
 
@@ -13,7 +13,7 @@ python -m vox --ui
 
 1. Paste your own Groq API key **into the app**, then click Save key. Never put the key in chat or commit it to a repository. The app stores it encrypted with Windows DPAPI for the current user under `%LOCALAPPDATA%\vox\groq.key`. The Remove button deletes the saved key; revoke it at Groq if necessary. Uninstall preserves user data.
 2. Click **Start recording**, speak, then **Finish recording**. It automatically ends after 15 seconds. Or type a request. Enable Dry run to plan without taking action.
-3. Approve or decline any displayed website address, folder path or typing request. For typing, select the exact target window from a locally enumerated list; window titles are never sent to Groq. Approval expires after 15 seconds and cannot be reused. Voice cannot approve an action.
+3. Approve or decline any displayed website address, folder path or typing request. For typing, scroll and window actions, select the exact target window from a locally enumerated list; window titles are never sent to Groq. Approval expires after 15 seconds and cannot be reused. Voice cannot approve an action.
 
 The microphone is not continuously listening; recorded audio is held in memory and sent to Groq for transcription. The transcript, text request, and tool definitions are sent to Groq. Optional spoken replies are also sent to Groq for synthesis. No screen capture is sent. Groq use requires connectivity, an eligible key/model/quota, and may incur charges. The defaults are `whisper-large-v3-turbo`, `openai/gpt-oss-20b`, and `canopylabs/orpheus-v1-english`. See [Groq speech-to-text](https://console.groq.com/docs/speech-to-text), [tool use](https://console.groq.com/docs/tool-use), and [text-to-speech](https://console.groq.com/docs/text-to-speech).
 
