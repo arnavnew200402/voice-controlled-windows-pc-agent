@@ -19,7 +19,7 @@ class Process(Protocol):
 
 
 def system_directory() -> str:
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
     func = kernel.GetSystemDirectoryW
     func.argtypes = [ctypes.POINTER(ctypes.c_wchar), ctypes.c_uint]
     func.restype = ctypes.c_uint
@@ -31,7 +31,7 @@ def system_directory() -> str:
 
 
 def foreground_pid() -> int:
-    user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
+    user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
     user.GetForegroundWindow.argtypes = []
     user.GetForegroundWindow.restype = ctypes.c_void_p
     user.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]

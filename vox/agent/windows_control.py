@@ -88,8 +88,8 @@ def valid_local_path(path: str) -> bool:
 def _known_folder(name: str) -> str:
     if os.name != "nt" or name not in KNOWN_FOLDERS:
         raise OSError("Known folder not available")
-    shell = ctypes.WinDLL("shell32", use_last_error=True)  # type: ignore[attr-defined]
-    ole = ctypes.WinDLL("ole32", use_last_error=True)  # type: ignore[attr-defined]
+    shell = ctypes.WinDLL("shell32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
+    ole = ctypes.WinDLL("ole32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
     guid = ctypes.create_string_buffer(uuid.UUID(KNOWN_FOLDERS[name]).bytes_le, 16)
     pointer = ctypes.c_void_p()
     shell.SHGetKnownFolderPath.argtypes = [
@@ -131,7 +131,7 @@ def open_resolved_folder(path: str) -> ToolResult:
             return ToolResult(
                 ok=False, evidence="Folder changed since approval; nothing was opened."
             )
-        os.startfile(resolved)  # type: ignore[attr-defined]
+        os.startfile(resolved)  # type: ignore[attr-defined, unused-ignore]
         return ToolResult(
             ok=True,
             evidence="Windows was asked to open the approved folder; its window was not verified.",
@@ -221,8 +221,8 @@ class WindowsWindows:
     def __init__(self) -> None:
         if os.name != "nt":
             raise OSError("Windows desktop required")
-        self.user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        self.user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
         u, k = self.user, self.kernel
         u.IsWindow.argtypes, u.IsWindow.restype = [HANDLE], BOOL
         u.IsWindowVisible.argtypes, u.IsWindowVisible.restype = [HANDLE], BOOL
@@ -354,7 +354,7 @@ class WindowsWindows:
 
     def list_windows(self) -> list[WindowRef]:
         result: list[WindowRef] = []
-        callback_type = ctypes.WINFUNCTYPE(BOOL, HANDLE, ctypes.c_ssize_t)  # type: ignore[attr-defined]
+        callback_type = ctypes.WINFUNCTYPE(BOOL, HANDLE, ctypes.c_ssize_t)  # type: ignore[attr-defined, unused-ignore]
 
         @callback_type  # type: ignore[untyped-decorator]
         def callback(hwnd: int, _: int) -> int:
@@ -562,8 +562,8 @@ class WindowsWindows:
         try:
             target = Path(path).resolve()
             target.parent.mkdir(parents=True, exist_ok=True)
-            user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
-            gdi = ctypes.WinDLL("gdi32", use_last_error=True)  # type: ignore[attr-defined]
+            user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
+            gdi = ctypes.WinDLL("gdi32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
             src_dc = user.GetDC(0)
             height = user.GetSystemMetrics(78)
             width = user.GetSystemMetrics(77)

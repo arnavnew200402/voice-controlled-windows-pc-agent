@@ -50,7 +50,7 @@ def play_wav(data: bytes) -> None:
         with wave.open(io.BytesIO(data), "rb") as audio:
             if not audio.getframerate() or audio.getnframes() / audio.getframerate() > 30:
                 raise AudioError("Voice reply was invalid.")
-        winsound.PlaySound(data, winsound.SND_MEMORY)  # type: ignore[attr-defined]
+        winsound.PlaySound(data, winsound.SND_MEMORY)  # type: ignore[attr-defined, unused-ignore]
     except AudioError:
         raise
     except Exception as exc:

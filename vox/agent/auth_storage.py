@@ -51,8 +51,8 @@ def _dpapi(data: bytes, *, decrypt: bool) -> bytes:
     if os.name != "nt":
         raise StorageError("Windows DPAPI is required for credential storage.")
     try:
-        crypt = ctypes.WinDLL("crypt32", use_last_error=True)  # type: ignore[attr-defined]
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        crypt = ctypes.WinDLL("crypt32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
         array = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
         incoming = _Blob(len(data), array)
         outgoing = _Blob()
