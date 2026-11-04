@@ -232,8 +232,9 @@ class SessionStore:
         rows = []
         for event in events:
             keep_text = self._store_transcripts or event.speaker == "tool"
-            event_type = str(event.event.type) if event.event is not None else None
-            store_payload = event.event is not None and (
+            typed = event.event
+            event_type = str(typed.model_fields["type"].default) if typed is not None else None
+            store_payload = typed is not None and (
                 self._store_transcripts or event_type in _AUDIT_EVENT_TYPES
             )
             rows.append(
@@ -248,7 +249,7 @@ class SessionStore:
                     event.asr_confidence,
                     event.lang,
                     event_type,
-                    event.event.model_dump_json() if store_payload else None,
+                    typed.model_dump_json() if store_payload and typed is not None else None,
                 )
             )
         self._conn.executemany(
@@ -317,8 +318,8 @@ class SessionStore:
                     turn_id=row[1],
                     t_mono=float(row[2]),
                     t_wall=float(row[3]),
-                    speaker=row[4],  # type: ignore[arg-type]
-                    kind=row[5],  # type: ignore[arg-type]
+                    speaker=row[4],
+                    kind=row[5],
                     text=str(row[6] or ""),
                     asr_confidence=row[7],
                     lang=row[8],
@@ -351,7 +352,7 @@ class SessionStore:
         entities = [
             Entity(
                 id=str(row[0]),
-                kind=row[1],  # type: ignore[arg-type]
+                kind=row[1],
                 label=str(row[2]),
                 data=json.loads(row[3]) if row[3] else {},
                 registered_at=float(row[4]),
