@@ -24,6 +24,27 @@ from vox.engine.turns import CommitGuard, PostCommitKind, Turn, TurnManager, Tur
 FakeLLM = Callable[[str], tuple[str, bool] | None]
 
 
+class FakeScoredEngine:
+    """Queue-scripted ScoredWakeEngine for wake replay scenarios (LE1b)."""
+
+    def __init__(self, snippets: list) -> None:
+        self._snippets = list(snippets)
+        self.resets = 0
+        self.fed = 0
+
+    def feed_scored(self, frame: bytes):
+        self.fed += 1
+        return self._snippets.pop(0) if self._snippets else None
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+def frame(sample: int = 8000, samples: int = 4000) -> bytes:
+    """One 250 ms int16 frame at a constant sample value (RMS control)."""
+    return int(sample).to_bytes(2, "little", signed=True) * samples
+
+
 @dataclass
 class FakeTools:
     dispatched: list[tuple[str, bool]] = field(default_factory=list)  # (name, side_effecting)
