@@ -238,6 +238,26 @@ class ScreenshotRequest(BaseModel):
         return value
 
 
+class ClipboardTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    text: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Exact single-line text to place on the clipboard, without Enter, Tab or other control characters.",
+    )
+
+    @field_validator("text")
+    @classmethod
+    def visible_text(cls, value: str) -> str:
+        if any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value):
+            raise ValueError("Control and hidden formatting characters are not supported")
+        return value
+
+
+class SystemInfoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
 @dataclass(frozen=True)
 class PlannedAction:
     name: str
@@ -275,6 +295,13 @@ class PlannedAction:
             return f"Delete this file:\n{self.args.path}"
         if isinstance(self.args, ScreenshotRequest):
             return f"Take a screenshot and save it to:\n{self.args.path}"
+        if isinstance(self.args, ClipboardTextRequest):
+            return (
+                "Replace the clipboard contents with this exact text:\n"
+                f"{self.args.text}\n(The current clipboard contents will be lost.)"
+            )
+        if isinstance(self.args, SystemInfoRequest):
+            return "Show basic read-only system information (Windows version and disk use)."
         return "Unsupported action."
 
 
@@ -294,6 +321,8 @@ class DesktopBackend(Protocol):
     def move_file(self, source: str, destination: str) -> ToolResult: ...
     def delete_file(self, path: str) -> ToolResult: ...
     def screenshot(self, path: str) -> ToolResult: ...
+    def set_clipboard(self, text: str) -> ToolResult: ...
+    def system_info(self) -> ToolResult: ...
 
 
 class WindowsDesktopBackend:
@@ -437,6 +466,18 @@ class WindowsDesktopBackend:
         except OSError:
             return ToolResult(ok=False, evidence="Screenshot is unavailable.")
 
+    def set_clipboard(self, text: str) -> ToolResult:
+        try:
+            return WindowsWindows().set_clipboard(text)
+        except OSError:
+            return ToolResult(ok=False, evidence="The clipboard is unavailable.")
+
+    def system_info(self) -> ToolResult:
+        try:
+            return WindowsWindows().system_info()
+        except OSError:
+            return ToolResult(ok=False, evidence="System information is unavailable.")
+
 
 class GroqRegistry:
     def __init__(self, backend: DesktopBackend) -> None:
@@ -458,6 +499,7 @@ class GroqRegistry:
             or (action.name == "move_file" and isinstance(action.args, MoveFileRequest))
             or (action.name == "delete_file" and isinstance(action.args, DeleteFileRequest))
             or (action.name == "screenshot" and isinstance(action.args, ScreenshotRequest))
+            or (action.name == "set_clipboard" and isinstance(action.args, ClipboardTextRequest))
         )
         if not allowed or action.tier is not Tier.CONFIRM:
             raise ValueError("Action does not support approval")
@@ -607,6 +649,22 @@ class GroqRegistry:
                     "parameters": ScreenshotRequest.model_json_schema(),
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "set_clipboard",
+                    "description": "Replace the clipboard contents with exact text. The user sees and must approve the exact text first. Reading the clipboard is not supported.",
+                    "parameters": ClipboardTextRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "system_info",
+                    "description": "Show basic read-only system information: Windows version, architecture, and system-drive disk use.",
+                    "parameters": SystemInfoRequest.model_json_schema(),
+                },
+            },
         ]
 
     def plan(self, message: dict[str, object]) -> PlannedAction:
@@ -674,6 +732,14 @@ class GroqRegistry:
                 return PlannedAction(
                     "screenshot", ScreenshotRequest.model_validate(raw), Tier.CONFIRM
                 )
+            if call.get("name") == "set_clipboard":
+                return PlannedAction(
+                    "set_clipboard", ClipboardTextRequest.model_validate(raw), Tier.CONFIRM
+                )
+            if call.get("name") == "system_info":
+                return PlannedAction(
+                    "system_info", SystemInfoRequest.model_validate(raw), Tier.SAFE
+                )
         except (ValueError, ValidationError, OSError) as exc:
             raise ProviderError("Groq returned invalid or unsupported action arguments.") from exc
         raise ProviderError("That action is not supported.")
@@ -686,6 +752,12 @@ class GroqRegistry:
             and isinstance(action.args, AppArgs)
         ):
             return self._backend.open_app(action.args.name)
+        if (
+            action.name == "system_info"
+            and action.tier is Tier.SAFE
+            and isinstance(action.args, SystemInfoRequest)
+        ):
+            return self._backend.system_info()
         allowed = (
             (action.name == "open_website" and isinstance(action.args, WebsiteArgs))
             or (action.name == "open_folder" and isinstance(action.args, FolderBound))
@@ -700,6 +772,7 @@ class GroqRegistry:
             or (action.name == "move_file" and isinstance(action.args, MoveFileRequest))
             or (action.name == "delete_file" and isinstance(action.args, DeleteFileRequest))
             or (action.name == "screenshot" and isinstance(action.args, ScreenshotRequest))
+            or (action.name == "set_clipboard" and isinstance(action.args, ClipboardTextRequest))
         )
         if allowed and action.tier is Tier.CONFIRM:
             if not approval_id or not self.approvals.consume(
@@ -733,4 +806,6 @@ class GroqRegistry:
                 return self._backend.delete_file(action.args.path)
             if isinstance(action.args, ScreenshotRequest):
                 return self._backend.screenshot(action.args.path)
+            if isinstance(action.args, ClipboardTextRequest):
+                return self._backend.set_clipboard(action.args.text)
         return ToolResult(ok=False, evidence="Unsupported action.")

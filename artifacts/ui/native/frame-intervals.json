@@ -10,48 +10,48 @@
     },
     "wake": {
       "samples": 39,
-      "p95_ms": 11.46,
-      "max_ms": 11.59
+      "p95_ms": 11.53,
+      "max_ms": 11.57
     },
     "listening": {
       "samples": 85,
-      "p95_ms": 11.35,
-      "max_ms": 11.42
+      "p95_ms": 11.33,
+      "max_ms": 11.51
     },
     "thinking": {
-      "samples": 39,
-      "p95_ms": 11.55,
-      "max_ms": 11.56
+      "samples": 38,
+      "p95_ms": 11.6,
+      "max_ms": 11.8
     },
     "acting": {
       "samples": 39,
-      "p95_ms": 11.59,
-      "max_ms": 11.62
+      "p95_ms": 11.64,
+      "max_ms": 15.67
     },
     "approval": {
       "samples": 39,
-      "p95_ms": 11.7,
-      "max_ms": 14.69
+      "p95_ms": 11.6,
+      "max_ms": 11.74
     },
     "speaking": {
-      "samples": 86,
-      "p95_ms": 11.35,
-      "max_ms": 11.46
+      "samples": 85,
+      "p95_ms": 11.36,
+      "max_ms": 13.24
     },
     "error": {
       "samples": 38,
-      "p95_ms": 11.66,
-      "max_ms": 11.73
+      "p95_ms": 11.54,
+      "max_ms": 11.63
     },
     "echo": {
       "samples": 39,
-      "p95_ms": 11.66,
-      "max_ms": 14.78
+      "p95_ms": 11.53,
+      "max_ms": 11.61
     },
     "panel": {
       "samples": 39,
-      "p95_ms": 11.04,
-      "max_ms": 13.32
+      "p95_ms": 11.24,
+      "max_ms": 11.32
     }
   }
 }

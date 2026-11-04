@@ -13,6 +13,7 @@ from vox.agent.auth_storage import StorageError
 from vox.agent.groq import GroqClient, HTTPSGroqTransport
 from vox.agent.groq_key import GroqKeyStore
 from vox.agent.groq_tools import (
+    ClipboardTextRequest,
     CopyFileRequest,
     DeleteFileRequest,
     FolderBound,
@@ -22,6 +23,7 @@ from vox.agent.groq_tools import (
     ScreenshotRequest,
     ScrollBound,
     ScrollRequest,
+    SystemInfoRequest,
     TypingBound,
     TypingRequest,
     WebsiteArgs,
@@ -130,6 +132,14 @@ class FakeBackend:
         self.calls.append(("screenshot", path))
         return ToolResult(ok=True, evidence="Screenshot saved.")
 
+    def set_clipboard(self, text):
+        self.calls.append(("clipboard", text))
+        return ToolResult(ok=True, evidence="Clipboard replaced with the approved text.")
+
+    def system_info(self):
+        self.calls.append(("system_info",))
+        return ToolResult(ok=True, evidence="OS: FakeWindows 11")
+
 
 def test_chat_and_transcription_wire_formats():
     transport = Transport(response(tool_message()))
@@ -154,6 +164,8 @@ def test_chat_and_transcription_wire_formats():
         "move_file",
         "delete_file",
         "screenshot",
+        "set_clipboard",
+        "system_info",
     }
     transport.data = b'{"text":"Open Notepad"}'
     wav = b"RIFF" + b"x" * 50
@@ -427,6 +439,79 @@ def test_screenshot_binds_exact_path_and_single_use():
     assert registry.execute(action, approval).ok
     assert not registry.execute(action, approval).ok
     assert ("screenshot", r"C:\a\shot.bmp") in backend.calls
+
+
+def test_set_clipboard_binds_exact_text_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("set_clipboard", json.dumps({"text": "meet at 5 pm"})))
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, ClipboardTextRequest)
+    # The approval card must show the exact text before the clipboard is touched.
+    assert "meet at 5 pm" in action.description
+    assert not registry.execute(action).ok
+    assert backend.calls == []
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert backend.calls == [("clipboard", "meet at 5 pm")]
+
+
+def test_set_clipboard_approval_cannot_be_reused_for_different_text():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("set_clipboard", json.dumps({"text": "approved text"})))
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    tampered = PlannedAction(
+        "set_clipboard", ClipboardTextRequest(text="different text"), Tier.CONFIRM
+    )
+    assert not registry.execute(tampered, approval).ok
+    assert backend.calls == []
+    assert registry.execute(action, approval).ok
+    assert backend.calls == [("clipboard", "approved text")]
+
+
+def test_set_clipboard_cannot_be_downgraded_to_safe_tier():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    forged = PlannedAction("set_clipboard", ClipboardTextRequest(text="hello"), Tier.SAFE)
+    assert not registry.execute(forged).ok
+    assert backend.calls == []
+
+
+@pytest.mark.parametrize(
+    "text", ["hello\nworld", "hello\ttab", "hello\u200eworld", "hello\u202eworld", "x" * 1001]
+)
+def test_set_clipboard_rejects_control_bidi_and_overlong_text(text):
+    with pytest.raises(ProviderError):
+        GroqRegistry(FakeBackend()).plan(tool_message("set_clipboard", json.dumps({"text": text})))
+
+
+def test_system_info_is_safe_tier_and_runs_without_approval():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("system_info", "{}"))
+    assert action.tier is Tier.SAFE and isinstance(action.args, SystemInfoRequest)
+    with pytest.raises(ValueError):
+        registry.request_approval(action)
+    assert registry.execute(action).ok
+    assert backend.calls == [("system_info",)]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        tool_message("system_info", '{"path":"evil"}'),
+        tool_message("read_clipboard", "{}"),
+        tool_message("get_clipboard", "{}"),
+    ],
+)
+def test_system_info_args_and_clipboard_read_fail_closed(message):
+    backend = FakeBackend()
+    with pytest.raises(ProviderError):
+        GroqRegistry(backend).plan(message)
+    assert backend.calls == []
 
 
 @pytest.mark.parametrize("path", ["relative\\path", "\\\\server\\share", "C:\\a\\..\\b"])

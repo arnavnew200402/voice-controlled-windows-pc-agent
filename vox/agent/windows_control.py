@@ -1,9 +1,15 @@
-"""Narrow Win32 adapters. No shell commands, clipboard access, or implicit targets."""
+"""Narrow Win32 adapters. No shell commands, implicit targets, or clipboard reads.
+
+The clipboard is write-only here: `set_clipboard` accepts only registry-validated
+text that the user approved verbatim. Clipboard contents are never read back,
+because they are untrusted and may contain secrets.
+"""
 
 from __future__ import annotations
 
 import ctypes
 import os
+import platform
 import shutil
 import time
 import uuid
@@ -261,6 +267,20 @@ class WindowsWindows:
         ]
         k.GetProcessTimes.restype = BOOL
         k.CloseHandle.argtypes, k.CloseHandle.restype = [HANDLE], BOOL
+        u.OpenClipboard.argtypes, u.OpenClipboard.restype = [HANDLE], BOOL
+        u.CloseClipboard.argtypes, u.CloseClipboard.restype = [], BOOL
+        u.EmptyClipboard.argtypes, u.EmptyClipboard.restype = [], BOOL
+        u.SetClipboardData.argtypes, u.SetClipboardData.restype = (
+            [ctypes.c_uint, HANDLE],
+            HANDLE,
+        )
+        k.GlobalAlloc.argtypes, k.GlobalAlloc.restype = (
+            [ctypes.c_uint, ctypes.c_size_t],
+            HANDLE,
+        )
+        k.GlobalLock.argtypes, k.GlobalLock.restype = [HANDLE], ctypes.c_void_p
+        k.GlobalUnlock.argtypes, k.GlobalUnlock.restype = [HANDLE], BOOL
+        k.GlobalFree.argtypes, k.GlobalFree.restype = [HANDLE], HANDLE
 
     def snapshot(self, hwnd: int) -> WindowRef | None:
         u, k = self.user, self.kernel
@@ -472,6 +492,69 @@ class WindowsWindows:
             return ToolResult(ok=True, evidence=f"File deleted: {target}.")
         except (OSError, ValueError):
             return ToolResult(ok=False, evidence="Could not delete the file.")
+
+    def set_clipboard(self, text: str) -> ToolResult:
+        """Replace the clipboard with registry-validated, user-approved text only."""
+        if not text or len(text) > 1000:
+            return ToolResult(ok=False, evidence="Clipboard text is empty or too long.")
+        u, k = self.user, self.kernel
+        # CF_UNICODETEXT requires moveable global memory holding a
+        # NUL-terminated UTF-16LE string. This replaces the previous
+        # clipboard contents; the approved text was shown verbatim first.
+        encoded = (text + "\0").encode("utf-16-le")
+        handle = k.GlobalAlloc(0x0002, len(encoded))  # GMEM_MOVEABLE
+        if not handle:
+            return ToolResult(ok=False, evidence="Could not allocate clipboard memory.")
+        committed = False
+        try:
+            pointer = k.GlobalLock(handle)
+            if not pointer:
+                return ToolResult(ok=False, evidence="Could not prepare the clipboard text.")
+            try:
+                ctypes.memmove(pointer, encoded, len(encoded))
+            finally:
+                k.GlobalUnlock(handle)
+            opened = False
+            for _ in range(10):  # Another app may briefly hold the clipboard open.
+                if u.OpenClipboard(None):
+                    opened = True
+                    break
+                time.sleep(0.05)
+            if not opened:
+                return ToolResult(ok=False, evidence="The clipboard is busy or unavailable.")
+            try:
+                if not u.EmptyClipboard() or not u.SetClipboardData(13, handle):
+                    return ToolResult(ok=False, evidence="Windows rejected the clipboard update.")
+                committed = True  # The system owns the handle from here on.
+            finally:
+                u.CloseClipboard()
+            return ToolResult(
+                ok=True,
+                evidence=f"Clipboard replaced with the approved text ({len(text)} characters).",
+            )
+        except (OSError, ValueError):
+            return ToolResult(ok=False, evidence="Could not write to the clipboard.")
+        finally:
+            if not committed:
+                k.GlobalFree(handle)
+
+    def system_info(self) -> ToolResult:
+        # Deliberately minimal and read-only: no user name, host name or paths,
+        # because this evidence may be spoken through the online speech service.
+        try:
+            drive = os.environ.get("SystemDrive", "C:")
+            total, used, _free = shutil.disk_usage(f"{drive}\\")
+            return ToolResult(
+                ok=True,
+                evidence=(
+                    f"OS: {platform.system()} {platform.release()} ({platform.version()})\n"
+                    f"Architecture: {platform.machine()}\n"
+                    f"System drive {drive}: {used // (1024**3)} GB used "
+                    f"of {total // (1024**3)} GB total."
+                ),
+            )
+        except (OSError, ValueError):
+            return ToolResult(ok=False, evidence="Could not retrieve system information.")
 
     def screenshot(self, path: str) -> ToolResult:
         if not valid_local_path(path):
