@@ -168,6 +168,16 @@ ApplicationWindow {
                     Text { text: "STATUS"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 1 }
                     Text { objectName: "statusText"; text: viewModel.status; color: "#c2cad7"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                     Text { visible: viewModel.transcript.length > 0; text: "Heard: " + viewModel.transcript; color: theme.muted; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    RowLayout {
+                        visible: viewModel.handsFree
+                        Layout.fillWidth: true; spacing: 8
+                        Text { text: "MIC"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 1 }
+                        Rectangle {
+                            Layout.fillWidth: true; height: 6; radius: 3; color: "#232838"
+                            Rectangle { width: parent.width * Math.min(1, viewModel.micLevel * 3); height: parent.height; radius: 3; color: "#50dfaa" }
+                        }
+                    }
+                    Text { objectName: "wakeHeardText"; visible: viewModel.handsFree; text: viewModel.wakeHeard.length > 0 ? "Heard locally (wake word): “" + viewModel.wakeHeard + "”" : "Heard locally (wake word): — say “Hi Vox”"; textFormat: Text.PlainText; color: theme.muted; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 }
             }
             Item { Layout.preferredHeight: 20 }

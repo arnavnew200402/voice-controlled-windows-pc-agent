@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable
 from vox.agent.auth_storage import StorageError
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
-from vox.voice.audio import AudioError, NoSpeechError
+from vox.voice.audio import AudioError, NoSpeechError, frame_rms
 from vox.voice.service import Outcome
 from vox.voice.wake import WakeEngine, WakeError
 
@@ -39,6 +39,7 @@ class HandsFreeController:
         on_state: Callable[[str], None],
         on_outcome: Callable[[Outcome], None],
         on_error: Callable[[str], None],
+        on_level: Callable[[float], None] | None = None,
         pause_after_speak: float = 0.4,
     ) -> None:
         self._engine_factory = engine_factory
@@ -49,6 +50,7 @@ class HandsFreeController:
         self._on_state = on_state
         self._on_outcome = on_outcome
         self._on_error = on_error
+        self._on_level = on_level
         self._pause_after_speak = pause_after_speak
         self._cancel = threading.Event()
         self._resume = threading.Event()
@@ -132,6 +134,8 @@ class HandsFreeController:
         for frame in self._frame_source(cancelled):
             if cancelled():
                 return False
+            if self._on_level is not None:
+                self._on_level(frame_rms(frame))
             if not self._resume.is_set():
                 # Paused for an approval card: discard frames without feeding
                 # the spotter so the wake phrase cannot queue a second request.

@@ -36,13 +36,33 @@ def pcm(level: float, samples: int = 4000) -> bytes:
         "hi box",
         "hey fox",
         "um hi vox please",
+        # Mis-hearings from small recognizers / accents.
+        "i vox",
+        "high vox",
+        "hey walks",
+        "hi wax",
+        "ok voss",
+        "hivox",
     ],
 )
 def test_wake_phrases_match(text):
     assert contains_wake_phrase(text)
 
 
-@pytest.mark.parametrize("text", ["", "vox", "hello world", "hi there", "a box of foxes"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "vox",
+        "hello world",
+        "hi there",
+        "a box of foxes",
+        "i walks every day",
+        "a box",
+        "say hi to the fox",
+        "hey there box",
+    ],
+)
 def test_non_wake_text_does_not_match(text):
     assert not contains_wake_phrase(text)
 
@@ -94,7 +114,7 @@ def wait_until(predicate, timeout=5.0):
 
 
 def make_controller(*, frame_batches, capture, process, speak=None):
-    events = {"states": [], "outcomes": [], "errors": [], "spoken": []}
+    events = {"states": [], "outcomes": [], "errors": [], "spoken": [], "levels": []}
     engine = FakeEngine()
     batches = iter(frame_batches)
 
@@ -110,6 +130,7 @@ def make_controller(*, frame_batches, capture, process, speak=None):
         on_state=events["states"].append,
         on_outcome=events["outcomes"].append,
         on_error=events["errors"].append,
+        on_level=events["levels"].append,
         pause_after_speak=0,
     )
     return controller, engine, events
@@ -146,6 +167,7 @@ def test_full_handsfree_turn_then_back_to_listening():
     assert events["spoken"] == ["Calculator opened."]
     assert [o.result.evidence for o in events["outcomes"]] == ["Calculator opened."]
     assert events["errors"] == []
+    assert events["levels"] and all(0.0 <= level <= 1.0 for level in events["levels"])
 
 
 def test_no_wake_phrase_means_no_capture_or_cloud_call():
@@ -326,3 +348,55 @@ def test_ensure_model_rejects_zip_slip(tmp_path, monkeypatch):
     with pytest.raises(WakeError):
         ensure_model()
     assert not (tmp_path.parent / "evil.txt").exists()
+
+
+def test_vosk_engine_feed_parses_results_and_reports_heard(monkeypatch):
+    import json
+    import types
+    from pathlib import Path
+
+    class FakeRecognizer:
+        def __init__(self):
+            self.resets = 0
+
+        def SetWords(self, value):
+            pass
+
+        def AcceptWaveform(self, frame):
+            return frame == b"final"
+
+        def Result(self):
+            return json.dumps({"text": "hi box"})
+
+        def PartialResult(self):
+            return json.dumps({"partial": "hi"})
+
+        def Reset(self):
+            self.resets += 1
+
+    recognizer = FakeRecognizer()
+    fake_vosk = types.SimpleNamespace(
+        Model=lambda path: object(),
+        KaldiRecognizer=lambda model, rate: recognizer,
+        SetLogLevel=lambda level: None,
+    )
+    monkeypatch.setattr(wake.importlib, "import_module", lambda name: fake_vosk)
+    engine = wake.VoskWakeEngine(model_path=Path("fake-model"))
+    heard = []
+    engine.set_on_heard(heard.append)
+    assert engine.feed(b"partial-frame") is False
+    assert heard == ["hi"]
+    assert engine.feed(b"final") is True
+    assert heard[-1] == "hi box"
+    assert recognizer.resets == 1
+
+
+def test_vosk_engine_without_vosk_installed_fails_closed(monkeypatch):
+    from pathlib import Path
+
+    def missing(name):
+        raise ImportError("no vosk")
+
+    monkeypatch.setattr(wake.importlib, "import_module", missing)
+    with pytest.raises(WakeError, match="not installed"):
+        wake.VoskWakeEngine(model_path=Path("fake-model"))

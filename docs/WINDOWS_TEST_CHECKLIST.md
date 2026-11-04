@@ -42,6 +42,16 @@ before the screenshot step. Use your own Groq API key; never share it in issues.
   opens; the app returns to **LISTENING FOR 'HI VOX'** by itself.
 - [ ] Say “Hi Vox” and then nothing: after a few seconds it quietly returns
   to listening for the wake phrase.
+- [ ] **If “Hi Vox” does not wake it**, use the diagnostics in the STATUS card
+  and report which case you see:
+  - MIC bar flat + “Heard locally: —” → audio is not reaching the app. Check
+    Windows Settings → Privacy → Microphone (allow desktop apps) and that
+    your real mic is the **default input device** (Sound settings).
+  - MIC bar moves but “Heard locally” stays — or shows different words
+    (e.g. “hi folks”) → the small offline model is mis-hearing you. Try
+    “Hey Vox”, speak closer/louder, and report the exact heard text.
+  - “Heard locally” shows “hi vox” (or similar) but it still does not wake
+    → bug; report the exact text shown.
 - [ ] Enable spoken replies: the result is spoken through your speakers
   (Orpheus TTS) and matches the on-screen evidence.
 - [ ] Say something unsupported (e.g. “restart the PC”): clear refusal,

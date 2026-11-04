@@ -164,8 +164,18 @@ def handsfree_harness(model, services):
     wake_gate = threading.Event()
 
     class WakeEngine:
+        def __init__(self):
+            self.on_heard = None
+
+        def set_on_heard(self, callback):
+            self.on_heard = callback
+
         def feed(self, frame):
-            return wake_gate.is_set()
+            if wake_gate.is_set():
+                if self.on_heard is not None:
+                    self.on_heard("hi box")
+                return True
+            return False
 
     def frame_source(cancelled):
         while not cancelled():
@@ -328,6 +338,7 @@ def test_handsfree_wake_and_website_confirmation_are_connected():
     wake_gate.set()
     wait_until(lambda: model.approvalPending)
     wake_gate.clear()
+    assert model.wakeHeard == "hi box"
     assert not model.recording and model.transcript == "Open example dot com"
     assert "https://example.com/" in model.approvalText
     assert services.backend.calls == []

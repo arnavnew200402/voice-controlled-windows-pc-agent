@@ -39,6 +39,8 @@ class GroqViewModel(QObject):
         self._busy = False
         self._recording = False
         self._hands_free = False
+        self._wake_heard = ""
+        self._mic_level = 0.0
         self._controller: HandsFreeController | None = None
         # Injection seams for tests; None means use the real audio/wake stack.
         self._hf_engine_factory: Callable[[], WakeEngine] | None = None
@@ -121,6 +123,14 @@ class GroqViewModel(QObject):
     @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
     def handsFree(self) -> bool:
         return self._hands_free
+
+    @Property(str, notify=changed)  # type: ignore[call-arg, arg-type]
+    def wakeHeard(self) -> str:
+        return self._wake_heard
+
+    @Property(float, notify=changed)  # type: ignore[call-arg, arg-type]
+    def micLevel(self) -> float:
+        return self._mic_level
 
     @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
     def approvalPending(self) -> bool:
@@ -216,8 +226,19 @@ class GroqViewModel(QObject):
                 return
             self._cancel.clear()
             self._transcript = ""
+            self._wake_heard = ""
+            self._mic_level = 0.0
+            factory: Callable[[], WakeEngine] = self._hf_engine_factory or VoskWakeEngine
+
+            def make_engine() -> WakeEngine:
+                engine = factory()
+                setter = getattr(engine, "set_on_heard", None)
+                if callable(setter):
+                    setter(lambda text: self._results.put(("hf_heard", text)))
+                return engine
+
             controller = HandsFreeController(
-                engine_factory=self._hf_engine_factory or VoskWakeEngine,
+                engine_factory=make_engine,
                 frame_source=self._hf_frame_source or iter_microphone_frames,
                 capture_command=self._hf_capture_command or record_until_silence,
                 process_audio=self._services.process_audio,
@@ -225,6 +246,7 @@ class GroqViewModel(QObject):
                 on_state=lambda state: self._results.put(("hf_state", state)),
                 on_outcome=lambda outcome: self._results.put(("hf_outcome", outcome)),
                 on_error=lambda message: self._results.put(("hf_error", message)),
+                on_level=lambda level: self._results.put(("hf_level", level)),
             )
             self._controller = controller
             self._hands_free = True
@@ -235,6 +257,7 @@ class GroqViewModel(QObject):
             if self._controller is not None:
                 self._controller.stop()
             self._recording = False
+            self._mic_level = 0.0
             if not self._pending:
                 self._state, self._title = "idle", "Ready"
                 self._detail = self._status = "Hands-free is off. The microphone is closed."
@@ -363,6 +386,15 @@ class GroqViewModel(QObject):
             if kind == "hf_state":
                 self._apply_hf_state(value)
                 continue
+            if kind == "hf_heard":
+                self._wake_heard = str(value)[:120]
+                self.changed.emit()
+                continue
+            if kind == "hf_level":
+                level = float(value)
+                self._mic_level = level if 0.0 <= level <= 1.0 else min(1.0, max(0.0, level))
+                self.changed.emit()
+                continue
             if kind in ("processing", "speaking"):
                 self._recording = False
                 self._state, self._title = (
@@ -452,6 +484,7 @@ class GroqViewModel(QObject):
             self._detail = "Playing the spoken reply."
         elif state == "off":
             self._recording = False
+            self._mic_level = 0.0
             was_on = self._hands_free
             self._hands_free = False
             self._controller = None

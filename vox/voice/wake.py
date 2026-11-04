@@ -2,7 +2,8 @@
 
 A small offline Vosk recognizer runs over microphone frames and only reports
 whether a wake phrase ("Hi Vox" and common mis-hearings such as "hey box")
-was spoken. The transcript produced here is discarded after each check; the
+was spoken. Snippets are never sent online; they may be shown locally in the
+UI ("Heard locally") purely so users can diagnose microphone problems. The
 request itself is captured separately and sent to Groq by the caller.
 
 The speech model (~40 MB, Apache-2.0) is bundled with the installer when
@@ -14,11 +15,13 @@ from __future__ import annotations
 
 import importlib
 import io
+import itertools
 import json
 import os
 import sys
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -26,8 +29,10 @@ MODEL_NAME = "vosk-model-small-en-us-0.15"
 MODEL_URL = f"https://alphacephei.com/vosk/models/{MODEL_NAME}.zip"
 MAX_MODEL_BYTES = 100 * 1024 * 1024
 
-# The first entry is the documented phrase; the rest are words the small
-# English model commonly substitutes for the unfamiliar name "Vox".
+# Canonical phrases. "Vox" is out-of-vocabulary for small English models, so
+# the matcher below also accepts the words recognizers commonly substitute
+# for it — but only when paired with a greeting, so ordinary sentences such
+# as "a box" or "I walks" never wake the assistant.
 WAKE_PHRASES = (
     "hi vox",
     "hey vox",
@@ -39,6 +44,23 @@ WAKE_PHRASES = (
     "hey fox",
 )
 
+_STRONG_GREETINGS = {"hi", "hey", "ok", "okay"}
+_WEAK_GREETINGS = {"high", "hay", "he", "i"}  # plausible mis-hearings of "hi"
+_NAME_VARIANTS = {
+    "vox",
+    "box",
+    "fox",
+    "walks",
+    "wax",
+    "vax",
+    "vaux",
+    "valk",
+    "volks",
+    "voss",
+    "vos",
+}
+_MERGED = {"hivox", "heyvox", "okvox", "okayvox"}
+
 
 class WakeError(RuntimeError):
     pass
@@ -48,11 +70,21 @@ class WakeEngine(Protocol):
     def feed(self, frame: bytes) -> bool: ...
 
 
+def _tokens(text: str) -> list[str]:
+    return "".join(char.lower() if char.isalnum() else " " for char in text).split()
+
+
 def contains_wake_phrase(text: str) -> bool:
     """True when a recognized snippet contains a wake phrase as whole words."""
-    normalized = " ".join("".join(char.lower() if char.isalnum() else " " for char in text).split())
-    padded = f" {normalized} "
-    return any(f" {phrase} " in padded for phrase in WAKE_PHRASES)
+    tokens = _tokens(text)
+    if any(token in _MERGED for token in tokens):
+        return True
+    for greeting, name in itertools.pairwise(tokens):
+        if greeting in _STRONG_GREETINGS and name in _NAME_VARIANTS:
+            return True
+        if greeting in _WEAK_GREETINGS and name == "vox":
+            return True
+    return False
 
 
 def _model_root_candidates() -> list[Path]:
@@ -154,15 +186,34 @@ class VoskWakeEngine:
         except (OSError, RuntimeError, ValueError) as exc:
             raise WakeError("The wake-word model could not be loaded.") from exc
         self._recognizer.SetWords(False)
+        self._on_heard: Callable[[str], None] | None = None
+        self._last_heard = ""
+
+    def set_on_heard(self, callback: Callable[[str], None]) -> None:
+        """Register a diagnostic sink for locally recognized snippets.
+
+        The callback receives partial/final wake-spotter text (never sent
+        online) so the UI can show what the microphone path actually hears.
+        """
+        self._on_heard = callback
+
+    def _emit_heard(self, text: str) -> None:
+        cleaned = " ".join(text.split())
+        if cleaned and cleaned != self._last_heard:
+            self._last_heard = cleaned
+            if self._on_heard is not None:
+                self._on_heard(cleaned)
 
     def feed(self, frame: bytes) -> bool:
         if self._recognizer.AcceptWaveform(frame):
             text = self._snippet(self._recognizer.Result(), "text")
+            self._emit_heard(text)
             if contains_wake_phrase(text):
                 self._recognizer.Reset()
                 return True
             return False
         partial = self._snippet(self._recognizer.PartialResult(), "partial")
+        self._emit_heard(partial)
         if contains_wake_phrase(partial):
             self._recognizer.Reset()
             return True
