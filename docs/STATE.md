@@ -8,12 +8,12 @@
 - Separate actual online preview UI (`--ui`) connects browser sign-in and typed requests to that restricted path. It discloses online use, enables dry run by default and implements cooperative stop (not an isolated worker). `--ui-demo` remains simulated.
 - Screenshot: `artifacts/ui/native/online-preview.png`, captured with Linux offscreen software rendering; not Windows or GPU evidence.
 - 2026-11-04 Linux: **68 passed, 1 Windows-only DPAPI skipped**; Ruff, format check, mypy and Python-entry Qt offscreen smoke passed. Tests use fake provider/credentials; no real Notepad launch.
-- Windows x64 per-user Inno Setup/PyInstaller preview job succeeded in GitHub Actions run 41855510009: packaged app rendered offscreen, installer ran in the runner temporary directory, and installed app rendered offscreen. Artifact `vox-windows-early-preview` is available for 30 days. The separate Windows non-UI tests hung; CI test job remains unverified, and packaging success is not a full test pass.
+- Windows x64 per-user Inno Setup/PyInstaller preview jobs succeeded in GitHub Actions runs 41855510009 and 41856192982: packaged app rendered offscreen, installer ran in the runner temporary directory, and installed app rendered offscreen. Artifact `vox-windows-early-preview` from run 41856192982 is available via GitHub until 2026-12-04; GitHub login may be required. Direct sandbox download failed because the artifact storage host is outside the permitted network. The separate Windows non-UI tests hung despite timeout and isolation attempts; at last check the job was still in progress, and packaging success is not a full test pass.
 
 ## In progress / limitations
 - Full voice, general PC control, production approvals/policy/audit, isolated workers, socket-level offline guard and complete installer acceptance criteria do not exist.
 - Cooperative stop is best-effort: an already-started action cannot be undone and network calls can run until timeout; window closure does not guarantee instantaneous cancellation.
-- No real Windows/OpenAI/DPAPI/Notepad verification, live plan validation, token refresh, app-side logout/revocation, or account switching. Sign in again on expiry; disconnect access in ChatGPT settings. Windows CI build is pending.
+- No interactive Windows desktop/OpenAI/DPAPI/Notepad verification, live plan validation, token refresh, app-side logout/revocation, or account switching. Sign in again on expiry; disconnect access in ChatGPT settings. Windows CI build is pending.
 - Installer is unsigned, online-only and explicitly labeled early preview; legal packaging notices included but distribution compliance still needs independent review. Not a release of the full agent.
 
 ## Next 5 tasks

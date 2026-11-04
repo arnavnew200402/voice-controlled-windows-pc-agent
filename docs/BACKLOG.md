@@ -44,4 +44,7 @@
 - [ ] M4-04 Model acceptance suites (≥80% gate) + `MODEL_BENCH.md`
 - [ ] M5-06 Speaker verification (flag only); real loopback correlation
 - [ ] M7-02 Settings window (keys in Credential Manager), onboarding wizard, hardware probe, model downloader, Aemyos language set + parity test
-- [ ] M8-01 PyInstaller/Nuitka + Inno Setup (online + offline), signing, `vox doctor`, soak tests, `LICENSES.md` review of wake-word/TTS voice licences. Online-only *preview* build configured but not yet validated in Windows CI.
+- [ ] M8-01 PyInstaller/Nuitka + Inno Setup (online + offline), signing, `vox doctor`, soak tests, `LICENSES.md` review of wake-word/TTS voice licences. Online-only *preview* installer and installed-app offscreen smoke succeeded in Windows CI; full Windows test suite stalled and full acceptance remains open.
+
+- [x] M8-01a Build unsigned per-user online-only early preview installer and verify packaged and installed Qt rendering offscreen in Windows Actions.
+- [ ] M8-02 Diagnose stalled Windows non-UI CI checks and verify Qt tests and complete suite on Windows; do not treat installer smoke as a complete test pass.
