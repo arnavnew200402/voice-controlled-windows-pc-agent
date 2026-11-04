@@ -218,3 +218,33 @@ def test_sentence_chunking_speaks_incrementally():
     assert spoken[0] == "First sentence."
     assert spoken[1] == "Second one!"
     assert spoken[-1] == "Tail"
+
+
+def test_window_actions_fail_closed_until_bound_and_approved():
+    from vox.agent.windows_control import WindowRef
+
+    backend = Backend()
+    client = ScriptedClient(
+        [
+            [tool("type_text", text="hello there")],
+            [tool("type_text", text="hello there")],
+        ]
+    )
+    pipeline, _spoken, _t, _l, _e = make_pipeline(client, registry=GroqRegistry(backend))
+    outcome = pipeline.run_turn("type hello there")
+    assert outcome.kind == "pending_approval"
+    # No window bound: approval must refuse, never execute.
+    refused = pipeline.approve_pending(True)
+    assert refused is not None and refused.kind == "error"
+    assert backend.calls == []
+    # Bind a window (what the UI does on the approval card) → executes.
+    outcome = pipeline.run_turn("type hello there")
+    assert outcome.pending_action is not None
+    window = WindowRef(
+        hwnd=1, pid=2, created=3, focus_hwnd=1, title="Untitled", window_class="Notepad"
+    )
+    bound = pipeline._registry.bind_typing(outcome.pending_action, window)
+    assert pipeline.rebind_pending(bound)
+    done = pipeline.approve_pending(True)
+    assert done is not None and done.kind == "completed"
+    assert backend.calls == ["type_text"]

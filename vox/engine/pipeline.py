@@ -19,7 +19,13 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from vox.agent.groq import StreamDone, StreamEvent, TextDelta, ToolCallComplete
-from vox.agent.groq_tools import GroqRegistry, PlannedAction
+from vox.agent.groq_tools import (
+    GroqRegistry,
+    PlannedAction,
+    ScrollRequest,
+    TypingRequest,
+    WindowActionRequest,
+)
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
 from vox.approvals import Tier
@@ -130,6 +136,36 @@ class LivePipeline:
     @property
     def pending_action(self) -> PlannedAction | None:
         return self._pending_action[0] if self._pending_action else None
+
+    @property
+    def timeline(self) -> Timeline:
+        return self._timeline
+
+    def set_client(self, client: StreamClient) -> None:
+        self._client = client
+
+    def rebind_pending(self, action: PlannedAction) -> bool:
+        """Replace the pending action with a window-bound variant.
+
+        The UI binds the user's chosen window into typing/scroll/window
+        actions before approval; the pending plan must be swapped for
+        that bound variant (same tool only) before approve_pending."""
+        if self._pending_action is None:
+            return False
+        pending, approval_id, turn = self._pending_action
+        if action.name != pending.name:
+            return False
+        # Approvals are argument-bound: kill the unbound one and arm a
+        # fresh single-use approval for the window-bound action.
+        if approval_id:
+            self._registry.resolve_approval(approval_id, False)
+        try:
+            new_id = self._registry.request_approval(action)
+        except (ValueError, RuntimeError):
+            self._pending_action = None
+            return False
+        self._pending_action = (action, new_id, turn)
+        return True
 
     def repeat_last(self) -> str | None:
         for event in reversed(self._timeline.events()):
@@ -245,7 +281,15 @@ class LivePipeline:
             return None
         action, approval_id, turn = self._pending_action
         self._pending_action = None
-        self._registry.resolve_approval(approval_id, approved)
+        if approved and not approval_id:
+            # Window-bound approval was never armed (no rebind): fail closed.
+            message = "A target window wasn't chosen. Nothing was performed."
+            self._speak(turn, [message])
+            self._manager.close(turn)
+            self._checkpoint()
+            return TurnOutcome(kind="error", spoken=message)
+        if approval_id:
+            self._registry.resolve_approval(approval_id, approved)
         if not approved:
             self._speak(turn, ["Okay, cancelled."])
             self._manager.close(turn)
@@ -277,7 +321,8 @@ class LivePipeline:
     def _deny_pending(self) -> None:
         if self._pending_action is not None:
             _action, approval_id, turn = self._pending_action
-            self._registry.resolve_approval(approval_id, False)
+            if approval_id:
+                self._registry.resolve_approval(approval_id, False)
             self._pending_action = None
             if turn.state not in {"closed", "cancelled"}:
                 self._manager.cancel(turn, "stop_word")
@@ -472,7 +517,19 @@ class LivePipeline:
             )
             return
         if action.tier == Tier.CONFIRM:
-            approval_id = self._registry.request_approval(action)
+            try:
+                approval_id = self._registry.request_approval(action)
+            except ValueError:
+                # Window-targeted actions arrive unbound; their argument-
+                # bound approval is armed only after the UI binds the
+                # user's chosen window (rebind_pending). Fail closed for
+                # anything else.
+                if not isinstance(action.args, (TypingRequest, ScrollRequest, WindowActionRequest)):
+                    state.results.append(
+                        ToolResult(ok=False, evidence="That action is not available.")
+                    )
+                    return
+                approval_id = ""
             state.pending = (action, approval_id)
             return
         result = self._guard.dispatch(
