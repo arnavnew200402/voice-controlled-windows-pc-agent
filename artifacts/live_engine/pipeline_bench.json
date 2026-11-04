@@ -1,0 +1,94 @@
+{
+  "phase": "LE4",
+  "environment": "Linux sandbox; fake provider/backend; no live Groq, audio, or Windows desktop",
+  "prompt_assembly": {
+    "prompt_version": "v2",
+    "repetitions": 300,
+    "assembly_latency": {
+      "p50_ms": 0.033,
+      "p95_ms": 0.049,
+      "max_ms": 0.081
+    },
+    "static_prefix_bytes": 4605,
+    "baseline_total_bytes": 5919,
+    "static_share_of_baseline": 0.778,
+    "dynamic_variants": 4,
+    "unique_static_prefix_hashes": 1,
+    "static_prefix_byte_stable": true,
+    "static_prefix_sha256": "03ff34a77836b7fc394eaa5ee4c612ed3e367b4f3a4453f3be5f598d8bea2e54",
+    "variant_total_bytes_range": [
+      5886,
+      5922
+    ],
+    "baseline_section_chars": {
+      "user_card": 189,
+      "preferences": 164,
+      "summary": 40,
+      "ledger": 195,
+      "retrieved": 335,
+      "desktop_state": 31
+    },
+    "budgeted_sections_within_limits": true
+  },
+  "virtual_ttft_and_early_dispatch": {
+    "clock": "VirtualClock (scripted delays; not provider/network timing)",
+    "scenarios": [
+      {
+        "scripted_first_event_delay_ms": 50.0,
+        "measured_virtual_ttft_ms": 50.0,
+        "abs_error_ms": 0.0,
+        "tool_dispatch_at_virtual_ms": 50.0,
+        "dispatched_before_next_stream_event": true,
+        "backend_calls": 1,
+        "outcome": "completed"
+      },
+      {
+        "scripted_first_event_delay_ms": 120.0,
+        "measured_virtual_ttft_ms": 120.0,
+        "abs_error_ms": 0.0,
+        "tool_dispatch_at_virtual_ms": 120.0,
+        "dispatched_before_next_stream_event": true,
+        "backend_calls": 1,
+        "outcome": "completed"
+      },
+      {
+        "scripted_first_event_delay_ms": 200.0,
+        "measured_virtual_ttft_ms": 200.0,
+        "abs_error_ms": 0.0,
+        "tool_dispatch_at_virtual_ms": 200.0,
+        "dispatched_before_next_stream_event": true,
+        "backend_calls": 1,
+        "outcome": "completed"
+      }
+    ],
+    "max_abs_error_ms": 0.0,
+    "all_dispatched_before_next_stream_event": true
+  },
+  "local_pipeline_overhead": {
+    "scope": "Local fake-provider/fake-desktop overhead; excludes network, Groq, TTS, audio, and Windows actions",
+    "repetitions": 50,
+    "text_only_turn": {
+      "p50_ms": 0.367,
+      "p95_ms": 0.573,
+      "max_ms": 0.708,
+      "completed_runs": 50
+    },
+    "safe_tool_turn_with_follow_up": {
+      "p50_ms": 0.55,
+      "p95_ms": 0.729,
+      "max_ms": 0.786,
+      "completed_runs": 50
+    }
+  },
+  "provider_cache": {
+    "hit_rate_status": "not_measured",
+    "reason": "No live Groq request/key is available in this sandbox; actual prompt-cache hits require repeated provider requests.",
+    "offline_usage_parser_fixture": {
+      "request_streamed": true,
+      "prompt_tokens": 1200,
+      "cached_tokens": 900,
+      "completion_tokens": 20,
+      "fields_parsed": true
+    }
+  }
+}

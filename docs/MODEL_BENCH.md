@@ -37,3 +37,26 @@ synthetic corpus where most chunks share query tokens): p95 **0.96 ms**
 retrieval budget with headroom. Session checkpoint (500 events + 100
 actions) ≈62 ms, restore ≈2.6 ms. Vector retrieval not implemented
 (no licence-verified local embedding model in this environment).
+
+## LE4 — prompt/pipeline bench (2026-11-05, `scripts/pipeline_bench.py`)
+
+Sandbox measurements with a scripted streaming provider and fake desktop
+backend. These quantify local assembly/pipeline overhead and the
+pipeline's virtual-clock instrumentation; they are **not** live Groq
+latency or cache measurements.
+
+| Measurement | Result | Scope |
+|---|---:|---|
+| Prompt assembly | p50 0.033 ms, p95 0.049 ms (300 reps) | Cache-ordered v2 prompt with card/preferences, summary, ledger, retrieval, desktop state, recent turns, and task stack |
+| Static prefix | 4,605 B of a 5,919 B baseline prompt (77.8%); one SHA-256 across 4 dynamic variants | Byte-stability only; provider cache behaviour is not inferred |
+| Fake text-only turn | p50 0.367 ms, p95 0.573 ms (50/50 completed) | Local overhead, no network/TTS/desktop |
+| Fake SAFE tool + follow-up | p50 0.550 ms, p95 0.729 ms (50/50 completed) | Initial stream, early fake `open_app`, one evidence follow-up |
+| Virtual TTFT scenarios | Scripted 50/120/200 ms first-event delays measured as 50/120/200 ms; max error 0.0 ms | `VirtualClock`; in every scenario the fake backend was called before the next stream event |
+
+Groq's streamed `usage.prompt_tokens`, `completion_tokens`, and
+`prompt_tokens_details.cached_tokens` fields are parsed by the client and
+covered by the offline fixture in `pipeline_bench.json`. The provider
+prompt-cache **hit rate remains `not_measured`**: no API key or live
+provider request is available in this sandbox. It must be measured with
+repeated authorised live requests on Windows before any cache-speed or
+cost claim is made (and rechecked at LE7).
