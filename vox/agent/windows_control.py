@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
 import time
 import uuid
 from pathlib import Path, PureWindowsPath
@@ -431,3 +432,91 @@ class WindowsWindows:
             ok=True,
             evidence="Close request was sent to the selected window; the window may ask for confirmation.",
         )
+
+    def copy_file(self, source: str, destination: str) -> ToolResult:
+        if not valid_local_path(source) or not valid_local_path(destination):
+            return ToolResult(ok=False, evidence="Only local absolute paths are supported.")
+        try:
+            src = Path(source).resolve(strict=True)
+            dst = Path(destination).resolve()
+            if not src.is_file():
+                return ToolResult(ok=False, evidence="Source file does not exist.")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            return ToolResult(ok=True, evidence=f"File copied from {src} to {dst}.")
+        except (OSError, ValueError, shutil.Error):
+            return ToolResult(ok=False, evidence="Could not copy the file.")
+
+    def move_file(self, source: str, destination: str) -> ToolResult:
+        if not valid_local_path(source) or not valid_local_path(destination):
+            return ToolResult(ok=False, evidence="Only local absolute paths are supported.")
+        try:
+            src = Path(source).resolve(strict=True)
+            dst = Path(destination).resolve()
+            if not src.is_file():
+                return ToolResult(ok=False, evidence="Source file does not exist.")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dst))
+            return ToolResult(ok=True, evidence=f"File moved from {src} to {dst}.")
+        except (OSError, ValueError, shutil.Error):
+            return ToolResult(ok=False, evidence="Could not move the file.")
+
+    def delete_file(self, path: str) -> ToolResult:
+        if not valid_local_path(path):
+            return ToolResult(ok=False, evidence="Only local absolute paths are supported.")
+        try:
+            target = Path(path).resolve(strict=True)
+            if not target.is_file():
+                return ToolResult(ok=False, evidence="File does not exist.")
+            target.unlink()
+            return ToolResult(ok=True, evidence=f"File deleted: {target}.")
+        except (OSError, ValueError):
+            return ToolResult(ok=False, evidence="Could not delete the file.")
+
+    def screenshot(self, path: str) -> ToolResult:
+        if not valid_local_path(path):
+            return ToolResult(ok=False, evidence="Only local absolute paths are supported.")
+        try:
+            target = Path(path).resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            user = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
+            gdi = ctypes.WinDLL("gdi32", use_last_error=True)  # type: ignore[attr-defined]
+            src_dc = user.GetDC(0)
+            height = user.GetSystemMetrics(78)
+            width = user.GetSystemMetrics(77)
+            dest_dc = gdi.CreateCompatibleDC(src_dc)
+            bitmap = gdi.CreateCompatibleBitmap(src_dc, width, height)
+            gdi.SelectObject(dest_dc, bitmap)
+            gdi.BitBlt(dest_dc, 0, 0, width, height, src_dc, 0, 0, 0x00CC0020)
+            target = target.with_suffix(".bmp")
+            try:
+                from PIL import Image  # type: ignore[import-not-found]
+
+                img = Image.frombytes("RGB", (width, height), b"", "raw", "BGRX", 0, 1)
+                img.save(str(target), "BMP")
+            except ImportError:
+                row_size = ((width * 3 + 3) // 4) * 4
+                pixel_data = bytearray(row_size * height)
+                gdi.GetDIBits(dest_dc, bitmap, 0, height, pixel_data, None, 0)
+                with open(str(target), "wb") as f:
+                    f.write(b"BM")
+                    f.write((54 + len(pixel_data)).to_bytes(4, "little"))
+                    f.write(b"\0\0\0\0")
+                    f.write(b"\x36\x00\x00\x00")
+                    f.write(b"\x28\x00\x00\x00")
+                    f.write(width.to_bytes(4, "little"))
+                    f.write(height.to_bytes(4, "little"))
+                    f.write((1).to_bytes(2, "little"))
+                    f.write((24).to_bytes(2, "little"))
+                    f.write(b"\0\0\0\0")
+                    f.write(len(pixel_data).to_bytes(4, "little"))
+                    f.write((2835).to_bytes(4, "little"))
+                    f.write((2835).to_bytes(4, "little"))
+                    f.write(b"\0\0\0\0\0\0\0\0")
+                    f.write(pixel_data)
+            gdi.DeleteObject(bitmap)
+            gdi.DeleteDC(dest_dc)
+            user.ReleaseDC(0, src_dc)
+            return ToolResult(ok=True, evidence=f"Screenshot saved to {target}.")
+        except (OSError, ValueError, ImportError):
+            return ToolResult(ok=False, evidence="Could not capture screenshot.")

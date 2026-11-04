@@ -1,6 +1,6 @@
 # Vox — Windows voice control (early access)
 
-Vox now has a **real Groq-powered push-to-talk path**, not a simulated provider. It is not yet a complete general-purpose Windows agent: the enabled actions are opening Notepad, Calculator, Paint, HTTPS websites, local folders, typing exact text, scrolling, and minimizing/maximizing/restoring/closing windows selected by the user. Website, folder, typing, scroll and window-management actions require explicit click approval. No general shell, file deletion, arbitrary app launch, screen reading or computer-use tools are enabled.
+Vox now has a **real Groq-powered push-to-talk path**, not a simulated provider. It is not yet a complete general-purpose Windows agent: the enabled actions are opening Notepad, Calculator, Paint, Browser, Email, Settings, FileExplorer, Calendar, Photos, MediaPlayer, HTTPS websites, local folders, typing exact text, scrolling, minimizing/maximizing/restoring/closing windows, copying/moving/deleting files, and taking screenshots — all with explicit click approval. Website, folder, typing, scroll, window-management, and file-operation actions require explicit click approval. No general shell, file deletion, arbitrary app launch, screen reading or computer-use tools are enabled.
 
 ## Run the Groq voice UI
 

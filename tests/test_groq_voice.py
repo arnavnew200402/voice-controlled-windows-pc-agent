@@ -13,9 +13,13 @@ from vox.agent.auth_storage import StorageError
 from vox.agent.groq import GroqClient, HTTPSGroqTransport
 from vox.agent.groq_key import GroqKeyStore
 from vox.agent.groq_tools import (
+    CopyFileRequest,
+    DeleteFileRequest,
     FolderBound,
     GroqRegistry,
+    MoveFileRequest,
     PlannedAction,
+    ScreenshotRequest,
     ScrollBound,
     ScrollRequest,
     TypingBound,
@@ -110,6 +114,22 @@ class FakeBackend:
         self.calls.append(("close", target.title))
         return ToolResult(ok=True, evidence="Close request sent to the selected window.")
 
+    def copy_file(self, source, destination):
+        self.calls.append(("copy", source, destination))
+        return ToolResult(ok=True, evidence="File copied.")
+
+    def move_file(self, source, destination):
+        self.calls.append(("move", source, destination))
+        return ToolResult(ok=True, evidence="File moved.")
+
+    def delete_file(self, path):
+        self.calls.append(("delete", path))
+        return ToolResult(ok=True, evidence="File deleted.")
+
+    def screenshot(self, path):
+        self.calls.append(("screenshot", path))
+        return ToolResult(ok=True, evidence="Screenshot saved.")
+
 
 def test_chat_and_transcription_wire_formats():
     transport = Transport(response(tool_message()))
@@ -130,6 +150,10 @@ def test_chat_and_transcription_wire_formats():
         "maximize_window",
         "restore_window",
         "close_window",
+        "copy_file",
+        "move_file",
+        "delete_file",
+        "screenshot",
     }
     transport.data = b'{"text":"Open Notepad"}'
     wav = b"RIFF" + b"x" * 50
@@ -346,6 +370,69 @@ def test_window_actions_bind_selected_window():
 def test_scroll_rejects_out_of_range_amount():
     with pytest.raises(ProviderError):
         GroqRegistry(FakeBackend()).plan(tool_message("scroll", json.dumps({"amount": 1000})))
+
+
+def test_copy_file_binds_exact_paths_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(
+        tool_message(
+            "copy_file", json.dumps({"source": r"C:\a\b.txt", "destination": r"C:\c\d.txt"})
+        )
+    )
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, CopyFileRequest)
+    assert not registry.execute(action).ok
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert ("copy", r"C:\a\b.txt", r"C:\c\d.txt") in backend.calls
+
+
+def test_move_file_binds_exact_paths_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(
+        tool_message(
+            "move_file", json.dumps({"source": r"C:\a\b.txt", "destination": r"C:\c\d.txt"})
+        )
+    )
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, MoveFileRequest)
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert ("move", r"C:\a\b.txt", r"C:\c\d.txt") in backend.calls
+
+
+def test_delete_file_binds_exact_path_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("delete_file", json.dumps({"path": r"C:\a\b.txt"})))
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, DeleteFileRequest)
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert ("delete", r"C:\a\b.txt") in backend.calls
+
+
+def test_screenshot_binds_exact_path_and_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("screenshot", json.dumps({"path": r"C:\a\shot.bmp"})))
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, ScreenshotRequest)
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert ("screenshot", r"C:\a\shot.bmp") in backend.calls
+
+
+@pytest.mark.parametrize("path", ["relative\\path", "\\\\server\\share", "C:\\a\\..\\b"])
+def test_file_ops_reject_unsafe_paths(path):
+    with pytest.raises(ProviderError):
+        GroqRegistry(FakeBackend()).plan(tool_message("delete_file", json.dumps({"path": path})))
 
 
 @pytest.mark.parametrize(

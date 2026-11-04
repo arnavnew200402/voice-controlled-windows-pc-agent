@@ -31,7 +31,18 @@ from vox.approvals import ApprovalStore, Tier, Via
 
 class AppArgs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    name: Literal["Notepad", "Calculator", "Paint"]
+    name: Literal[
+        "Notepad",
+        "Calculator",
+        "Paint",
+        "Browser",
+        "Email",
+        "Settings",
+        "FileExplorer",
+        "Calendar",
+        "Photos",
+        "MediaPlayer",
+    ]
 
 
 class WebsiteArgs(BaseModel):
@@ -163,6 +174,70 @@ class WindowActionBound(BaseModel):
     window: WindowRef
 
 
+class CopyFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    source: str = Field(
+        min_length=1, max_length=1000, description="Absolute local Windows source file path."
+    )
+    destination: str = Field(
+        min_length=1, max_length=1000, description="Absolute local Windows destination file path."
+    )
+
+    @field_validator("source", "destination")
+    @classmethod
+    def validate_paths(cls, value: str) -> str:
+        if not valid_local_path(value):
+            raise ValueError("Only absolute local Windows paths are supported")
+        return value
+
+
+class MoveFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    source: str = Field(
+        min_length=1, max_length=1000, description="Absolute local Windows source file path."
+    )
+    destination: str = Field(
+        min_length=1, max_length=1000, description="Absolute local Windows destination file path."
+    )
+
+    @field_validator("source", "destination")
+    @classmethod
+    def validate_paths(cls, value: str) -> str:
+        if not valid_local_path(value):
+            raise ValueError("Only absolute local Windows paths are supported")
+        return value
+
+
+class DeleteFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    path: str = Field(
+        min_length=1, max_length=1000, description="Absolute local Windows file path to delete."
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        if not valid_local_path(value):
+            raise ValueError("Only absolute local Windows paths are supported")
+        return value
+
+
+class ScreenshotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    path: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Absolute local Windows path to save the screenshot.",
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        if not valid_local_path(value):
+            raise ValueError("Only absolute local Windows paths are supported")
+        return value
+
+
 @dataclass(frozen=True)
 class PlannedAction:
     name: str
@@ -192,6 +267,14 @@ class PlannedAction:
             return f"Control the window you select.{hint}"
         if isinstance(self.args, WindowActionBound):
             return f"Control the selected window: {self.args.window.title}."
+        if isinstance(self.args, CopyFileRequest):
+            return f"Copy this file:\n{self.args.source}\nTo:\n{self.args.destination}"
+        if isinstance(self.args, MoveFileRequest):
+            return f"Move this file:\n{self.args.source}\nTo:\n{self.args.destination}"
+        if isinstance(self.args, DeleteFileRequest):
+            return f"Delete this file:\n{self.args.path}"
+        if isinstance(self.args, ScreenshotRequest):
+            return f"Take a screenshot and save it to:\n{self.args.path}"
         return "Unsupported action."
 
 
@@ -207,16 +290,44 @@ class DesktopBackend(Protocol):
     def maximize(self, target: WindowRef) -> ToolResult: ...
     def restore(self, target: WindowRef) -> ToolResult: ...
     def close_window(self, target: WindowRef) -> ToolResult: ...
+    def copy_file(self, source: str, destination: str) -> ToolResult: ...
+    def move_file(self, source: str, destination: str) -> ToolResult: ...
+    def delete_file(self, path: str) -> ToolResult: ...
+    def screenshot(self, path: str) -> ToolResult: ...
 
 
 class WindowsDesktopBackend:
     def open_app(self, name: str) -> ToolResult:
-        allowed = {"Notepad": "notepad.exe", "Calculator": "calc.exe", "Paint": "mspaint.exe"}
+        allowed = {
+            "Notepad": "notepad.exe",
+            "Calculator": "calc.exe",
+            "Paint": "mspaint.exe",
+            "Browser": None,  # Use webbrowser module
+            "Email": "outlook.exe",
+            "Settings": "start ms-settings:",
+            "FileExplorer": "explorer.exe",
+            "Calendar": "start ms-calendar:",
+            "Photos": "mspaint.exe",
+            "MediaPlayer": "start ms-media-player:",
+        }
         if os.name != "nt" or name not in allowed:
             return ToolResult(ok=False, evidence="This Windows application is not available.")
+        if name == "Browser":
+            try:
+                if webbrowser.open("https://www.google.com", new=2):
+                    return ToolResult(ok=True, evidence="Browser opened.")
+            except (OSError, webbrowser.Error):
+                pass
+            return ToolResult(ok=False, evidence="Could not open the browser.")
+        exe = allowed[name]
+        if exe is None:
+            return ToolResult(ok=False, evidence="This application is not available.")
         try:
+            if exe.startswith("start "):
+                subprocess.Popen(exe, shell=False, close_fds=True)
+                return ToolResult(ok=True, evidence=f"{name} opened.")
             proc = subprocess.Popen(
-                [os.path.join(system_directory(), allowed[name])], shell=False, close_fds=True
+                [os.path.join(system_directory(), exe)], shell=False, close_fds=True
             )
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
@@ -302,6 +413,30 @@ class WindowsDesktopBackend:
                 ok=False, evidence="Windows window control is unavailable. Nothing was closed."
             )
 
+    def copy_file(self, source: str, destination: str) -> ToolResult:
+        try:
+            return WindowsWindows().copy_file(source, destination)
+        except OSError:
+            return ToolResult(ok=False, evidence="File copy is unavailable.")
+
+    def move_file(self, source: str, destination: str) -> ToolResult:
+        try:
+            return WindowsWindows().move_file(source, destination)
+        except OSError:
+            return ToolResult(ok=False, evidence="File move is unavailable.")
+
+    def delete_file(self, path: str) -> ToolResult:
+        try:
+            return WindowsWindows().delete_file(path)
+        except OSError:
+            return ToolResult(ok=False, evidence="File delete is unavailable.")
+
+    def screenshot(self, path: str) -> ToolResult:
+        try:
+            return WindowsWindows().screenshot(path)
+        except OSError:
+            return ToolResult(ok=False, evidence="Screenshot is unavailable.")
+
 
 class GroqRegistry:
     def __init__(self, backend: DesktopBackend) -> None:
@@ -319,6 +454,10 @@ class GroqRegistry:
                 in ("minimize_window", "maximize_window", "restore_window", "close_window")
                 and isinstance(action.args, WindowActionBound)
             )
+            or (action.name == "copy_file" and isinstance(action.args, CopyFileRequest))
+            or (action.name == "move_file" and isinstance(action.args, MoveFileRequest))
+            or (action.name == "delete_file" and isinstance(action.args, DeleteFileRequest))
+            or (action.name == "screenshot" and isinstance(action.args, ScreenshotRequest))
         )
         if not allowed or action.tier is not Tier.CONFIRM:
             raise ValueError("Action does not support approval")
@@ -368,7 +507,7 @@ class GroqRegistry:
                 "type": "function",
                 "function": {
                     "name": "open_app",
-                    "description": "Open one of the supported built-in Windows applications.",
+                    "description": "Open one of the supported built-in Windows applications: Notepad, Calculator, Paint, Browser, Email, Settings, FileExplorer, Calendar, Photos, or MediaPlayer.",
                     "parameters": AppArgs.model_json_schema(),
                 },
             },
@@ -436,6 +575,38 @@ class GroqRegistry:
                     "parameters": WindowActionRequest.model_json_schema(),
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "copy_file",
+                    "description": "Copy a local file to another local path. The user must approve the exact source and destination.",
+                    "parameters": CopyFileRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "move_file",
+                    "description": "Move a local file to another local path. The user must approve the exact source and destination.",
+                    "parameters": MoveFileRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_file",
+                    "description": "Delete a local file. The user must approve the exact path.",
+                    "parameters": DeleteFileRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "screenshot",
+                    "description": "Take a full-screen screenshot and save it to a local path. The user must approve the exact path.",
+                    "parameters": ScreenshotRequest.model_json_schema(),
+                },
+            },
         ]
 
     def plan(self, message: dict[str, object]) -> PlannedAction:
@@ -491,6 +662,18 @@ class GroqRegistry:
                 return PlannedAction(
                     call["name"], WindowActionRequest.model_validate(raw), Tier.CONFIRM
                 )
+            if call.get("name") == "copy_file":
+                return PlannedAction("copy_file", CopyFileRequest.model_validate(raw), Tier.CONFIRM)
+            if call.get("name") == "move_file":
+                return PlannedAction("move_file", MoveFileRequest.model_validate(raw), Tier.CONFIRM)
+            if call.get("name") == "delete_file":
+                return PlannedAction(
+                    "delete_file", DeleteFileRequest.model_validate(raw), Tier.CONFIRM
+                )
+            if call.get("name") == "screenshot":
+                return PlannedAction(
+                    "screenshot", ScreenshotRequest.model_validate(raw), Tier.CONFIRM
+                )
         except (ValueError, ValidationError, OSError) as exc:
             raise ProviderError("Groq returned invalid or unsupported action arguments.") from exc
         raise ProviderError("That action is not supported.")
@@ -513,6 +696,10 @@ class GroqRegistry:
                 in ("minimize_window", "maximize_window", "restore_window", "close_window")
                 and isinstance(action.args, WindowActionBound)
             )
+            or (action.name == "copy_file" and isinstance(action.args, CopyFileRequest))
+            or (action.name == "move_file" and isinstance(action.args, MoveFileRequest))
+            or (action.name == "delete_file" and isinstance(action.args, DeleteFileRequest))
+            or (action.name == "screenshot" and isinstance(action.args, ScreenshotRequest))
         )
         if allowed and action.tier is Tier.CONFIRM:
             if not approval_id or not self.approvals.consume(
@@ -538,4 +725,12 @@ class GroqRegistry:
                     return self._backend.restore(action.args.window)
                 if action.name == "close_window":
                     return self._backend.close_window(action.args.window)
+            if isinstance(action.args, CopyFileRequest):
+                return self._backend.copy_file(action.args.source, action.args.destination)
+            if isinstance(action.args, MoveFileRequest):
+                return self._backend.move_file(action.args.source, action.args.destination)
+            if isinstance(action.args, DeleteFileRequest):
+                return self._backend.delete_file(action.args.path)
+            if isinstance(action.args, ScreenshotRequest):
+                return self._backend.screenshot(action.args.path)
         return ToolResult(ok=False, evidence="Unsupported action.")
