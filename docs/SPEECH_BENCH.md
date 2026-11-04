@@ -46,7 +46,7 @@ Artifact: `artifacts/live_engine/wake_bench.json`.
 | Audio false-reject: quiet / noisy / 2 m | ≤10% / ≤20% | same, `*.pos.wav` (record real voices: IN/US/UK English, Hindi-accented) |
 | Idle CPU/RAM incl. Vosk inference | ≤3% core, ≤50 MB | Task Manager / `vox bench --wake` soak on Tier B hardware |
 | Wake-to-feedback wall clock | ≤150 ms stage-1, ≤300 ms earcon | debug panel waterfall (LE6) |
-| Premature-cut rate, WER ±hotwords (EN/HI/Hinglish) | ≤3% cuts | voice harness, LE2/LE7 |
+| Premature-cut rate, field WER ±hotwords (EN/HI/Hinglish) | ≤3% cuts | voice harness, LE7. *Synthetic* repair-table WER measured at LE2: 0.562 → 0.000 (`scripts/context_bench.py`, docs/MODEL_BENCH.md) — not field WER. Groq `transcribe_detailed` (verbose_json confidence + glossary hotword prompt) implemented at LE2, awaiting live use. |
 | Barge-in cancel latency (real winsound) | ≤150 ms | Windows bench; player polls cancel every 20 ms by design |
 
 The sandbox cannot produce these: `alphacephei.com` (model host) is
