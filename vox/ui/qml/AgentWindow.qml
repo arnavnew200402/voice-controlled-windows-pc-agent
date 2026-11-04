@@ -71,6 +71,36 @@ ApplicationWindow {
             Item { Layout.preferredHeight: 20 }
             RowLayout {
                 Layout.fillWidth: true
+                Text { text: "Assistant engine"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
+                Text { text: viewModel.engineMode === "live" ? "LIVE" : "LEGACY"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.6 }
+            }
+            Item { Layout.preferredHeight: 9 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 9
+                Switch {
+                    id: liveEngineToggle
+                    objectName: "liveEngineToggle"
+                    text: checked ? "Live — streaming, context and memory" : "Legacy — single-shot planning"
+                    font.pixelSize: 12
+                    palette.text: theme.muted
+                    checked: viewModel.engineMode === "live"
+                    enabled: !viewModel.busy && !viewModel.approvalPending && !viewModel.handsFree
+                    onCheckedChanged: viewModel.setEngineMode(checked ? "live" : "legacy")
+                }
+                Item { Layout.fillWidth: true }
+                DemoButton {
+                    objectName: "repeatLastButton"
+                    text: "Repeat last reply"
+                    visible: viewModel.engineMode === "live"
+                    enabled: !viewModel.busy && !viewModel.approvalPending && !viewModel.handsFree
+                    onClicked: viewModel.repeatLast()
+                }
+            }
+            Item { Layout.preferredHeight: 6 }
+            Text { text: "Live mode is opt-in. It keeps conversation context on this device, streams replies, and still asks before consequential actions."; color: theme.subtle; font.pixelSize: 10; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 20 }
+            RowLayout {
+                Layout.fillWidth: true
                 Text { text: "Hands-free"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
                 Text { text: "ON-DEVICE WAKE WORD"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.6 }
             }
@@ -168,6 +198,39 @@ ApplicationWindow {
                     Text { text: "STATUS"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 1 }
                     Text { objectName: "statusText"; text: viewModel.status; color: "#c2cad7"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                     Text { visible: viewModel.transcript.length > 0; text: "Heard: " + viewModel.transcript; color: theme.muted; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text {
+                        objectName: "understoodText"
+                        visible: viewModel.engineMode === "live" && viewModel.lastStandalone.length > 0
+                        text: "Understood: " + viewModel.lastStandalone
+                        textFormat: Text.PlainText
+                        color: theme.muted
+                        font.pixelSize: 11
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                    }
+                    Text {
+                        visible: viewModel.engineMode === "live" && viewModel.liveHistory.length > 0
+                        text: "LIVE HISTORY"
+                        color: theme.subtle
+                        font.bold: true
+                        font.pixelSize: 9
+                        font.letterSpacing: 1
+                        Layout.fillWidth: true
+                    }
+                    Repeater {
+                        id: liveHistoryList
+                        objectName: "liveHistoryList"
+                        model: viewModel.engineMode === "live" ? viewModel.liveHistory : []
+                        delegate: Text {
+                            required property string modelData
+                            text: modelData
+                            textFormat: Text.PlainText
+                            color: theme.muted
+                            font.pixelSize: 10
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                        }
+                    }
                     RowLayout {
                         visible: viewModel.handsFree
                         Layout.fillWidth: true; spacing: 8

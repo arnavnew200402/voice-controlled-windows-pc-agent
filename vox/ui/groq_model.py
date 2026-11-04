@@ -5,7 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
@@ -23,6 +23,9 @@ from vox.voice.audio import AudioError, iter_microphone_frames, record_until_sil
 from vox.voice.handsfree import CaptureCommand, FrameSource, HandsFreeController
 from vox.voice.service import GroqVoiceService, Outcome
 from vox.voice.wake import VoskWakeEngine, WakeEngine
+
+if TYPE_CHECKING:
+    from vox.engine.pipeline import TurnOutcome
 
 
 class GroqViewModel(QObject):
@@ -49,6 +52,10 @@ class GroqViewModel(QObject):
         self._cancel = threading.Event()
         self._pending: PlannedAction | None = None
         self._approval_id: str | None = None
+        # Live-engine display state (engine.mode=live only).
+        self._live_pending = False
+        self._live_history: list[str] = []
+        self._last_standalone = ""
         self._windows: list[WindowRef] = []
         self._selected_window = -1
         self._results: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -176,6 +183,45 @@ class GroqViewModel(QObject):
     def transcript(self) -> str:
         return self._transcript
 
+    @Property(str, notify=changed)  # type: ignore[call-arg, arg-type]
+    def engineMode(self) -> str:
+        return self._services.engine_mode()
+
+    @Property("QStringList", notify=changed)  # type: ignore[call-arg, arg-type]
+    def liveHistory(self) -> list[str]:
+        return list(self._live_history)
+
+    @Property(str, notify=changed)  # type: ignore[call-arg, arg-type]
+    def lastStandalone(self) -> str:
+        return self._last_standalone
+
+    @Slot(str)
+    def setEngineMode(self, mode: str) -> None:
+        if self._busy or self._pending or self._hands_free:
+            return
+        applied = self._services.set_engine_mode(mode)
+        self._detail = self._status = (
+            "Live engine on: streaming turns with context, memory and early actions."
+            if applied == "live"
+            else "Legacy engine on: single-shot planning."
+        )
+        self.changed.emit()
+
+    @Slot()
+    def repeatLast(self) -> None:
+        if (
+            self._busy
+            or self._pending
+            or self._hands_free
+            or self._services.engine_mode() != "live"
+        ):
+            return
+        self._start_live(
+            lambda: self._services.live_submit(
+                "repeat that", False, self._cancel.is_set, speak=True
+            )
+        )
+
     @Slot(str)
     def saveKey(self, key: str) -> None:
         if self._busy or self._pending:
@@ -211,6 +257,11 @@ class GroqViewModel(QObject):
         if self._busy or self._pending or self._hands_free:
             return
         self._transcript = ""
+        if self._services.engine_mode() == "live":
+            self._start_live(
+                lambda: self._services.live_submit(text, dry_run, self._cancel.is_set, speak=speak)
+            )
+            return
         self._start(
             lambda: self._services.submit(text, dry_run, self._cancel.is_set),
             recording=False,
@@ -237,12 +288,19 @@ class GroqViewModel(QObject):
                     setter(lambda text: self._results.put(("hf_heard", text)))
                 return engine
 
+            live = self._services.engine_mode() == "live"
             controller = HandsFreeController(
                 engine_factory=make_engine,
                 frame_source=self._hf_frame_source or iter_microphone_frames,
                 capture_command=self._hf_capture_command or record_until_silence,
-                process_audio=self._services.process_audio,
-                speak_result=self._services.speak,
+                process_audio=(
+                    (lambda wav, dr, cx: self._live_process_audio(wav, dr, cx, speak))
+                    if live
+                    else self._services.process_audio
+                ),
+                # Live turns speak sentence-by-sentence inside the pipeline;
+                # the controller must not speak the summary a second time.
+                speak_result=(lambda _text, _cancelled: None) if live else self._services.speak,
                 on_state=lambda state: self._results.put(("hf_state", state)),
                 on_outcome=lambda outcome: self._results.put(("hf_outcome", outcome)),
                 on_error=lambda message: self._results.put(("hf_error", message)),
@@ -300,31 +358,96 @@ class GroqViewModel(QObject):
         threading.Thread(target=run, name="vox-groq-worker", daemon=True).start()
         self._timer.start()
 
+    def _live_process_audio(
+        self, wav: bytes, dry_run: bool, cancelled: Callable[[], bool], speak: bool
+    ) -> Outcome:
+        """Hands-free adapter: run a live turn, queue the rich outcome for
+        the UI, and return the controller's plain Outcome (pending pauses
+        wake listening until the card is resolved, as in legacy mode)."""
+        outcome = self._services.live_process_audio(wav, dry_run, cancelled, speak=speak)
+        self._results.put(("live_outcome", outcome))
+        if outcome.pending_action is not None:
+            return Outcome(pending=outcome.pending_action)
+        # The pipeline has already spoken any reply sentence-by-sentence.
+        # Returning no plain result keeps the controller from emitting a
+        # redundant "speaking" phase after the rich outcome is displayed.
+        return Outcome(transcript=outcome.standalone)
+
+    def _start_live(self, work: Callable[[], TurnOutcome | None]) -> None:
+        """Run one live-engine turn off-thread. The pipeline speaks
+        sentence-by-sentence itself; no evidence re-speak here."""
+        self._cancel.clear()
+        self._busy = True
+        self._state, self._title = "thinking", "Contacting Groq"
+        self._detail = self._status = "Live engine: streaming your request."
+        self.changed.emit()
+
+        def run() -> None:
+            try:
+                outcome = work()
+                if outcome is None:
+                    self._results.put(("error", "The request could not be completed."))
+                else:
+                    self._results.put(("live_outcome", outcome))
+            except (ProviderError, StorageError, AudioError) as exc:
+                self._results.put(("error", str(exc)))
+            except Exception:  # noqa: BLE001 - never expose API keys or arbitrary exception text
+                self._results.put(("error", "The request failed unexpectedly."))
+
+        threading.Thread(target=run, name="vox-live-worker", daemon=True).start()
+        self._timer.start()
+
+    def _bind_selected_window(self, action: PlannedAction) -> PlannedAction | None:
+        if not 0 <= self._selected_window < len(self._windows):
+            self._status = "Select a target window before confirming."
+            self.changed.emit()
+            return None
+        window = self._windows[self._selected_window]
+        try:
+            if isinstance(action.args, TypingRequest):
+                return self._services.registry.bind_typing(action, window)
+            if isinstance(action.args, ScrollRequest):
+                return self._services.registry.bind_scroll(action, window)
+            if isinstance(action.args, WindowActionRequest):
+                return self._services.registry.bind_window_action(action, window)
+        except (ValueError, RuntimeError):
+            self._error("Could not bind the selected window; no action was performed.")
+            return None
+        self._error("Unsupported window action; nothing was performed.")
+        return None
+
     @Slot()
     def approve(self) -> None:
         if not self._pending or self._busy:
             return
         action, approval_id = self._pending, self._approval_id
         if self.needsWindow:
-            if not 0 <= self._selected_window < len(self._windows):
-                self._status = "Select a target window before confirming."
-                self.changed.emit()
+            bound = self._bind_selected_window(action)
+            if bound is None:
                 return
-            window = self._windows[self._selected_window]
-            try:
-                if isinstance(action.args, TypingRequest):
-                    action = self._services.registry.bind_typing(action, window)
-                elif isinstance(action.args, ScrollRequest):
-                    action = self._services.registry.bind_scroll(action, window)
-                elif isinstance(action.args, WindowActionRequest):
-                    action = self._services.registry.bind_window_action(action, window)
-                else:
-                    self._error("Unsupported window action; nothing was performed.")
+            action = bound
+            if self._live_pending:
+                if not self._services.live_rebind_pending(action):
+                    self._services.live_deny()  # never leave a pipeline approval armed
+                    self._pending, self._approval_id = None, None
+                    self._live_pending = False
+                    self._windows = []
+                    self._selected_window = -1
+                    self._error("Could not prepare approval; no action was performed.")
                     return
-                approval_id = self._services.registry.request_approval(action)
-            except (ValueError, RuntimeError):
-                self._error("Could not bind the selected window; no action was performed.")
-                return
+            else:
+                try:
+                    approval_id = self._services.registry.request_approval(action)
+                except (ValueError, RuntimeError):
+                    self._error("Could not bind the selected window; no action was performed.")
+                    return
+        if self._live_pending:
+            self._pending, self._approval_id = None, None
+            self._live_pending = False
+            self._windows = []
+            self._selected_window = -1
+            self._start_live(lambda: self._services.live_approve(True))
+            return
         if not approval_id:
             self._error("Approval is unavailable. No action was performed.")
             return
@@ -343,6 +466,9 @@ class GroqViewModel(QObject):
     @Slot()
     def deny(self) -> None:
         if self._pending:
+            if self._live_pending:
+                self._services.live_deny()  # silent + synchronous: no TTS on UI thread
+                self._live_pending = False
             if self._approval_id:
                 self._services.registry.resolve_approval(self._approval_id, False)
             self._pending, self._approval_id = None, None
@@ -360,6 +486,9 @@ class GroqViewModel(QObject):
         self._hands_free = False
         self._recording = False
         self._services.registry.approvals.deny_all()
+        if self._live_pending:
+            self._services.live_deny()  # keep engine state in sync (harmless if already denied)
+            self._live_pending = False
         if self._pending:
             self._pending, self._approval_id = None, None
             self._windows = []
@@ -407,6 +536,17 @@ class GroqViewModel(QObject):
                     else "Playing the spoken reply."
                 )
                 self.changed.emit()
+                continue
+            if kind == "live_outcome":
+                if not self._hands_free:
+                    self._timer.stop()
+                self._busy, self._recording = False, False
+                self._apply_live_outcome(value)
+                continue
+            if kind == "hf_outcome" and self._services.engine_mode() == "live":
+                # Live display already applied ("live_outcome" is queued
+                # during processing, ahead of this, FIFO).
+                self._busy, self._recording = False, False
                 continue
             if not self._hands_free:
                 self._timer.stop()
@@ -461,6 +601,85 @@ class GroqViewModel(QObject):
             else:
                 self._error("No action was performed.")
 
+    def _apply_live_outcome(self, outcome: TurnOutcome) -> None:
+        self._live_history = self._services.live_history_lines()
+        if outcome.standalone:
+            self._last_standalone = outcome.standalone
+            self._transcript = outcome.standalone
+        if self._cancel.is_set():
+            if outcome.kind == "pending_approval" and outcome.pending_action is not None:
+                # Do not leave an armed pipeline approval behind after Stop.
+                self._services.live_deny()
+                self._live_pending = False
+            self._error("Stopped. An action already started may still have completed.")
+            return
+        if outcome.kind == "pending_approval" and outcome.pending_action is not None:
+            self._pending = outcome.pending_action
+            self._live_pending = True
+            # The argument-bound approval is armed inside the pipeline;
+            # the click resolves through live_approve (never by voice).
+            self._approval_id = None
+            self._state, self._title = "approval", "Confirmation required"
+            if self.needsWindow:
+                self.refreshWindows()
+                if isinstance(outcome.pending_action.args, TypingRequest):
+                    self._detail = self._status = (
+                        "Choose the exact window and review the text. Position its text cursor first."
+                    )
+                elif isinstance(outcome.pending_action.args, ScrollRequest):
+                    self._detail = self._status = (
+                        "Select the window where you want to scroll, then confirm."
+                    )
+                else:
+                    self._detail = self._status = (
+                        "Select the window you want to control, then confirm."
+                    )
+            else:
+                self._detail = self._status = (
+                    "Review the action below. Approval expires after 15 seconds."
+                )
+            self.changed.emit()
+            return
+        if outcome.kind == "completed":
+            ok = all(r.ok for r in outcome.results) if outcome.results else True
+            self._state = "result" if ok else "error"
+            self._title = "Completed" if ok else "Could not complete request"
+            self._detail = self._status = outcome.spoken or (
+                outcome.results[-1].evidence if outcome.results else "Done."
+            )
+        elif outcome.kind == "clarification":
+            self._state, self._title = "result", "Which one?"
+            question = outcome.clarification.question if outcome.clarification else outcome.spoken
+            self._detail = self._status = question or "Which one did you mean?"
+        elif outcome.kind == "card" and outcome.card is not None:
+            self._state = "result"
+            self._title = outcome.card[0] or "Details"
+            self._detail = self._status = outcome.card[1] or outcome.spoken
+        elif outcome.kind == "silent":
+            self._state, self._title = "idle", "Ready"
+            self._detail = self._status = "Okay — staying silent."
+        elif outcome.kind == "dictation":
+            self._state, self._title = "result", "Dictation captured"
+            preview = outcome.dictation_text[:160]
+            self._detail = self._status = (
+                "Dictation typing arrives in a later update; nothing was typed. " + preview
+            ).strip()
+        elif outcome.kind == "status":
+            self._state, self._title = "result", "Status"
+            self._detail = self._status = outcome.spoken
+        elif outcome.kind == "cancelled":
+            self._state, self._title = "idle", "Stopped"
+            self._detail = self._status = outcome.spoken or "Stopped."
+        else:  # "error"
+            self._error(outcome.spoken or "No action was performed.")
+            if self._controller is not None:
+                self._controller.resume()
+            return
+        self.changed.emit()
+        if self._controller is not None and outcome.kind in ("completed", "cancelled"):
+            # A turn (or an approved action) finished: listen again.
+            self._controller.resume()
+
     def _apply_hf_state(self, state: str) -> None:
         if state == "starting":
             self._state, self._title = "thinking", "Starting hands-free"
@@ -507,4 +726,7 @@ class GroqViewModel(QObject):
         if self._controller is not None:
             self._controller.stop()
         self._services.registry.approvals.deny_all()
+        if self._live_pending:
+            self._services.live_deny()
+            self._live_pending = False
         self._timer.stop()

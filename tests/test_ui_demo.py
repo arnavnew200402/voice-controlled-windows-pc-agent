@@ -120,6 +120,9 @@ def test_groq_ui_is_wired_to_background_services():
         def save_key(self, key):
             self.saved = key
 
+        def engine_mode(self):
+            return "legacy"
+
         def submit(self, text, dry_run, cancelled):
             self.thread_id = threading.get_ident()
             self.last_request = (text, dry_run)
@@ -233,6 +236,9 @@ def test_window_selection_and_typing_confirmation_are_wired():
             self.backend = Backend()
             self.registry = GroqRegistry(self.backend)
 
+        def engine_mode(self):
+            return "legacy"
+
         def process_audio(self, wav, dry_run, cancelled):
             assert wav == b"fake command"
             action = self.registry.plan(
@@ -300,6 +306,9 @@ def test_handsfree_wake_and_website_confirmation_are_connected():
             self.registry = GroqRegistry(self.backend)
             self.processed = []
 
+        def engine_mode(self):
+            return "legacy"
+
         def process_audio(self, wav, dry_run, cancelled):
             self.processed.append(wav)
             action = self.registry.plan(
@@ -346,4 +355,158 @@ def test_handsfree_wake_and_website_confirmation_are_connected():
     wait_until(lambda: services.backend.calls == ["https://example.com/"] and not model.busy)
     model.setHandsFree(False, False, False)
     wait_until(lambda: not model.handsFree)
+    close_preview(engine)
+
+
+def test_live_engine_toggle_approval_history_and_repeat_are_wired():
+    import threading
+
+    from vox.agent.groq_tools import GroqRegistry
+    from vox.agent.tools import ToolResult
+    from vox.engine.pipeline import TurnOutcome
+    from vox.ui.app import create_live
+
+    class Backend:
+        def open_app(self, name):
+            raise AssertionError("not expected")
+
+        def open_website(self, url):
+            raise AssertionError("the fake live service must not execute a browser action")
+
+    class Services:
+        def __init__(self):
+            self.backend = Backend()
+            self.registry = GroqRegistry(self.backend)
+            self.mode = "legacy"
+            self.live_requests = []
+            self.live_thread_id = 0
+            self.approvals = []
+            self.history = []
+            self.pending = self.registry.plan(
+                {
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "open_website",
+                                "arguments": '{"url":"https://example.com/"}',
+                            },
+                        }
+                    ]
+                }
+            )
+
+        def engine_mode(self):
+            return self.mode
+
+        def set_engine_mode(self, mode):
+            self.mode = "live" if mode == "live" else "legacy"
+            return self.mode
+
+        def submit(self, text, dry_run, cancelled):
+            raise AssertionError("legacy submit must not run in live mode")
+
+        def live_submit(self, text, dry_run, cancelled, *, speak):
+            self.live_thread_id = threading.get_ident()
+            self.live_requests.append((text, dry_run, speak))
+            if text == "repeat that":
+                self.history = [
+                    "user: open the example website",
+                    "assistant: Fake browser action completed.",
+                    "user: repeat that",
+                ]
+                return TurnOutcome(
+                    kind="completed",
+                    spoken="Fake browser action completed.",
+                    standalone="repeat that",
+                )
+            self.history = [
+                "user: open the example website",
+                "tool: open_website awaiting approval",
+            ]
+            return TurnOutcome(
+                kind="pending_approval",
+                pending_action=self.pending,
+                standalone="open the example website",
+            )
+
+        def live_approve(self, approved):
+            self.approvals.append(approved)
+            self.history = [
+                "user: open the example website",
+                "assistant: Fake browser action completed.",
+            ]
+            return TurnOutcome(
+                kind="completed",
+                spoken="Fake browser action completed.",
+                results=[ToolResult(ok=True, evidence="Fake browser action completed.")],
+                standalone="open the example website",
+            )
+
+        def live_deny(self):
+            raise AssertionError("deny is not part of this flow")
+
+        def live_history_lines(self, limit=8):
+            return self.history[-limit:]
+
+        def speak(self, text, cancelled):
+            pass
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    engine, model = create_live(app)
+    services = Services()
+    model._services = services
+    model.changed.emit()
+    wait(25)
+
+    root = engine.rootObjects()[0]
+    live_toggle = root.findChild(QObject, "liveEngineToggle")
+    input_field = root.findChild(QObject, "requestInput")
+    speak = root.findChild(QObject, "speak")
+    run = root.findChild(QObject, "runButton")
+    approve = root.findChild(QObject, "approveButton")
+    repeat = root.findChild(QObject, "repeatLastButton")
+    understood = root.findChild(QObject, "understoodText")
+    history = root.findChild(QObject, "liveHistoryList")
+    assert all(
+        item is not None
+        for item in (live_toggle, input_field, speak, run, approve, repeat, understood, history)
+    )
+
+    assert model.engineMode == "legacy"
+    assert live_toggle.property("checked") is False
+    assert QMetaObject.invokeMethod(live_toggle, "toggle")
+    wait_until(lambda: model.engineMode == "live" and live_toggle.property("checked") is True)
+
+    speak.setProperty("checked", False)
+    input_field.setProperty("text", "open Example")
+    assert QMetaObject.invokeMethod(run, "clicked")
+    wait_until(lambda: model.approvalPending and not model.busy)
+
+    assert services.live_requests == [("open Example", False, False)]
+    assert services.live_thread_id != threading.get_ident()
+    assert services.approvals == []
+    assert "https://example.com/" in model.approvalText
+    assert model.lastStandalone == "open the example website"
+    assert understood.property("visible") is True
+    assert understood.property("text") == "Understood: open the example website"
+    assert model.liveHistory == services.history
+    assert history.property("count") == len(services.history)
+
+    assert QMetaObject.invokeMethod(approve, "clicked")
+    wait_until(
+        lambda: (
+            services.approvals == [True]
+            and not model.busy
+            and not model.approvalPending
+            and model.status == "Fake browser action completed."
+        )
+    )
+
+    assert repeat.property("visible") is True
+    assert QMetaObject.invokeMethod(repeat, "clicked")
+    wait_until(lambda: len(services.live_requests) == 2 and not model.busy)
+    assert services.live_requests[-1] == ("repeat that", False, True)
+    assert model.status == "Fake browser action completed."
+    assert model.liveHistory == services.history
     close_preview(engine)
