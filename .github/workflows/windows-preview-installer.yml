@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'continue'
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxGroq --paths . --collect-all vosk --add-data "vox/ui/qml;vox/ui/qml" --add-data "wake-model;vox/wake-model" scripts/windows_entry.py 2>&1 | Tee-Object -FilePath pyinstaller-output.txt
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxGroq --paths . --collect-all vosk --add-data "vox/ui/qml;vox/ui/qml" --add-data "vox/engine/prompts;vox/engine/prompts" --add-data "wake-model;vox/wake-model" scripts/windows_entry.py 2>&1 | Tee-Object -FilePath pyinstaller-output.txt
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             $lines = Get-Content pyinstaller-output.txt -Tail 100
