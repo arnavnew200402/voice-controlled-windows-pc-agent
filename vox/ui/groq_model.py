@@ -1,4 +1,4 @@
-"""Qt bridge for real, explicitly started Groq push-to-talk sessions."""
+"""Qt bridge for the Groq voice UI: typed requests plus hands-free wake word."""
 
 from __future__ import annotations
 
@@ -19,8 +19,10 @@ from vox.agent.groq_tools import (
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
 from vox.agent.windows_control import WindowRef
-from vox.voice.audio import AudioError
+from vox.voice.audio import AudioError, iter_microphone_frames, record_until_silence
+from vox.voice.handsfree import CaptureCommand, FrameSource, HandsFreeController
 from vox.voice.service import GroqVoiceService, Outcome
+from vox.voice.wake import VoskWakeEngine, WakeEngine
 
 
 class GroqViewModel(QObject):
@@ -32,12 +34,17 @@ class GroqViewModel(QObject):
         self._state = "idle"
         self._title = "Ready"
         self._detail = "Add your Groq API key to start."
-        self._status = "Push to talk or enter a request."
+        self._status = "Turn on Hands-free or enter a request."
         self._transcript = ""
         self._busy = False
         self._recording = False
+        self._hands_free = False
+        self._controller: HandsFreeController | None = None
+        # Injection seams for tests; None means use the real audio/wake stack.
+        self._hf_engine_factory: Callable[[], WakeEngine] | None = None
+        self._hf_frame_source: FrameSource | None = None
+        self._hf_capture_command: CaptureCommand | None = None
         self._cancel = threading.Event()
-        self._finish = threading.Event()
         self._pending: PlannedAction | None = None
         self._approval_id: str | None = None
         self._windows: list[WindowRef] = []
@@ -67,6 +74,7 @@ class GroqViewModel(QObject):
     def eyebrow(self) -> str:
         return {
             "idle": "STANDING BY",
+            "wake": "SAY “HI VOX”",
             "recording": "MICROPHONE ON",
             "thinking": "GROQ IN USE",
             "result": "RESULT",
@@ -78,6 +86,7 @@ class GroqViewModel(QObject):
     def accent(self) -> str:
         return {
             "idle": "#a5b2c2",
+            "wake": "#50dfaa",
             "recording": "#ff927f",
             "thinking": "#a394ff",
             "result": "#50dfaa",
@@ -108,6 +117,10 @@ class GroqViewModel(QObject):
     @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
     def recording(self) -> bool:
         return self._recording
+
+    @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
+    def handsFree(self) -> bool:
+        return self._hands_free
 
     @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
     def approvalPending(self) -> bool:
@@ -163,7 +176,7 @@ class GroqViewModel(QObject):
             self._state, self._title, self._detail = (
                 "idle",
                 "Ready",
-                "Push to talk or type a request.",
+                "Turn on Hands-free and say “Hi Vox”, or type a request.",
             )
         except (StorageError, ValueError):
             self._state, self._title = "error", "Could not save key"
@@ -185,7 +198,7 @@ class GroqViewModel(QObject):
 
     @Slot(str, bool, bool)
     def submit(self, text: str, dry_run: bool, speak: bool) -> None:
-        if self._busy or self._pending:
+        if self._busy or self._pending or self._hands_free:
             return
         self._transcript = ""
         self._start(
@@ -194,29 +207,38 @@ class GroqViewModel(QObject):
             speak=speak,
         )
 
-    @Slot(bool, bool)
-    def record(self, dry_run: bool, speak: bool) -> None:
-        if self._busy or self._pending:
+    @Slot(bool, bool, bool)
+    def setHandsFree(self, enabled: bool, dry_run: bool, speak: bool) -> None:
+        if enabled == self._hands_free:
             return
-        self._transcript = ""
-        self._finish.clear()
-        self._start(
-            lambda: self._services.voice(
-                self._finish.is_set,
-                self._cancel.is_set,
-                dry_run,
-                lambda: self._results.put(("processing", None)),
-            ),
-            recording=True,
-            speak=speak,
-        )
-
-    @Slot()
-    def finishRecording(self) -> None:
-        if self._recording:
-            self._finish.set()
-            self._status = "Finishing recording…"
-            self.changed.emit()
+        if enabled:
+            if self._busy or self._pending:
+                return
+            self._cancel.clear()
+            self._transcript = ""
+            controller = HandsFreeController(
+                engine_factory=self._hf_engine_factory or VoskWakeEngine,
+                frame_source=self._hf_frame_source or iter_microphone_frames,
+                capture_command=self._hf_capture_command or record_until_silence,
+                process_audio=self._services.process_audio,
+                speak_result=self._services.speak,
+                on_state=lambda state: self._results.put(("hf_state", state)),
+                on_outcome=lambda outcome: self._results.put(("hf_outcome", outcome)),
+                on_error=lambda message: self._results.put(("hf_error", message)),
+            )
+            self._controller = controller
+            self._hands_free = True
+            self._timer.start()
+            controller.start(dry_run=dry_run, speak=speak)
+        else:
+            self._hands_free = False
+            if self._controller is not None:
+                self._controller.stop()
+            self._recording = False
+            if not self._pending:
+                self._state, self._title = "idle", "Ready"
+                self._detail = self._status = "Hands-free is off. The microphone is closed."
+        self.changed.emit()
 
     def _start(self, work: Callable[[], Outcome], *, recording: bool, speak: bool) -> None:
         self._cancel.clear()
@@ -225,9 +247,7 @@ class GroqViewModel(QObject):
         self._state = "recording" if recording else "thinking"
         self._title = "Listening" if recording else "Contacting Groq"
         self._detail = (
-            "Microphone on: click Finish when done."
-            if recording
-            else "Your request is sent online."
+            "Microphone on: speak your request." if recording else "Your request is sent online."
         )
         self._status = self._detail
         self.changed.emit()
@@ -306,11 +326,16 @@ class GroqViewModel(QObject):
             self._windows = []
             self._selected_window = -1
             self._error("Action declined. Nothing was performed.")
+            if self._controller is not None:
+                self._controller.resume()
 
     @Slot()
     def cancel(self) -> None:
         self._cancel.set()
-        self._finish.set()
+        if self._controller is not None:
+            self._controller.stop()
+        self._hands_free = False
+        self._recording = False
         self._services.registry.approvals.deny_all()
         if self._pending:
             self._pending, self._approval_id = None, None
@@ -335,6 +360,9 @@ class GroqViewModel(QObject):
                 kind, value = self._results.get_nowait()
             except queue.Empty:
                 return
+            if kind == "hf_state":
+                self._apply_hf_state(value)
+                continue
             if kind in ("processing", "speaking"):
                 self._recording = False
                 self._state, self._title = (
@@ -348,9 +376,10 @@ class GroqViewModel(QObject):
                 )
                 self.changed.emit()
                 continue
-            self._timer.stop()
+            if not self._hands_free:
+                self._timer.stop()
             self._busy, self._recording = False, False
-            if kind == "error":
+            if kind in ("error", "hf_error"):
                 self._error(value)
                 continue
             outcome: Outcome = value
@@ -393,11 +422,56 @@ class GroqViewModel(QObject):
                 self._title = "Completed" if outcome.result.ok else "Could not complete request"
                 self._detail = self._status = outcome.result.evidence
                 self.changed.emit()
+                if self._controller is not None:
+                    # An approved action finished (or a turn completed): let
+                    # the wake-word loop listen again.
+                    self._controller.resume()
             else:
                 self._error("No action was performed.")
 
+    def _apply_hf_state(self, state: str) -> None:
+        if state == "starting":
+            self._state, self._title = "thinking", "Starting hands-free"
+            self._detail = (
+                "Preparing the on-device wake word. First use downloads a small offline model."
+            )
+        elif state == "wake":
+            self._recording = False
+            self._state, self._title = "wake", "Hands-free on"
+            self._detail = "Say “Hi Vox”, then your request. Wake listening stays on this PC."
+        elif state == "command":
+            self._recording = True
+            self._state, self._title = "recording", "Listening"
+            self._detail = "Speak your request — Vox stops recording when you finish."
+        elif state == "processing":
+            self._recording = False
+            self._state, self._title = "thinking", "Contacting Groq"
+            self._detail = "Audio and request sent online."
+        elif state == "speaking":
+            self._state, self._title = "thinking", "Speaking"
+            self._detail = "Playing the spoken reply."
+        elif state == "off":
+            self._recording = False
+            was_on = self._hands_free
+            self._hands_free = False
+            self._controller = None
+            if self._state != "error" and not self._pending:
+                self._state, self._title = "idle", "Ready"
+                self._detail = "Turn on Hands-free or type a request."
+                if was_on:
+                    self._status = self._detail
+            if not self._busy:
+                self._timer.stop()
+            self.changed.emit()
+            return
+        else:
+            return
+        self._status = self._detail
+        self.changed.emit()
+
     def shutdown(self) -> None:
         self._cancel.set()
-        self._finish.set()
+        if self._controller is not None:
+            self._controller.stop()
         self._services.registry.approvals.deny_all()
         self._timer.stop()

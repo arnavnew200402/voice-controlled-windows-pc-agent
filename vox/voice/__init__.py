@@ -1,1 +1,1 @@
-"""Online push-to-talk voice pipeline."""
+"""Online voice pipeline with on-device hands-free wake word."""

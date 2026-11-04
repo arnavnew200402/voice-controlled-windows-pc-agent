@@ -156,9 +156,30 @@ def test_groq_ui_is_wired_to_background_services():
     close_preview(engine)
 
 
-def test_window_selection_and_typing_confirmation_are_wired():
+def handsfree_harness(model, services):
+    """Inject a fake wake engine, frame source and command capture."""
     import threading
+    import time
 
+    wake_gate = threading.Event()
+
+    class WakeEngine:
+        def feed(self, frame):
+            return wake_gate.is_set()
+
+    def frame_source(cancelled):
+        while not cancelled():
+            yield b"frame"
+            time.sleep(0.01)
+
+    model._hf_engine_factory = lambda: WakeEngine()
+    model._hf_frame_source = frame_source
+    model._hf_capture_command = lambda cancelled: b"fake command"
+    model._services = services
+    return wake_gate
+
+
+def test_window_selection_and_typing_confirmation_are_wired():
     from vox.agent.groq_tools import GroqRegistry
     from vox.agent.tools import ToolResult
     from vox.agent.windows_control import WindowRef
@@ -166,6 +187,9 @@ def test_window_selection_and_typing_confirmation_are_wired():
     from vox.voice.service import Outcome
 
     class Backend:
+        def __init__(self):
+            self.calls = []
+
         def open_app(self, name):
             raise AssertionError("not expected")
 
@@ -197,15 +221,10 @@ def test_window_selection_and_typing_confirmation_are_wired():
     class Services:
         def __init__(self):
             self.backend = Backend()
-            self.backend.calls = []
             self.registry = GroqRegistry(self.backend)
-            self.capture_started = threading.Event()
 
-        def voice(self, finished, cancelled, dry_run, on_processing):
-            self.capture_started.set()
-            while not finished() and not cancelled():
-                threading.Event().wait(0.01)
-            on_processing()
+        def process_audio(self, wav, dry_run, cancelled):
+            assert wav == b"fake command"
             action = self.registry.plan(
                 {
                     "tool_calls": [
@@ -227,28 +246,28 @@ def test_window_selection_and_typing_confirmation_are_wired():
     app = QGuiApplication.instance() or QGuiApplication([])
     engine, model = create_live(app)
     services = Services()
-    model._services = services
+    wake_gate = handsfree_harness(model, services)
     root = engine.rootObjects()[0]
     speak = root.findChild(QObject, "speak")
     speak.setProperty("checked", False)
-    record = root.findChild(QObject, "recordButton")
-    finish = root.findChild(QObject, "finishButton")
+    toggle = root.findChild(QObject, "handsFreeToggle")
     approve = root.findChild(QObject, "approveButton")
-    assert QMetaObject.invokeMethod(record, "clicked")
-    wait_until(lambda: services.capture_started.is_set())
-    assert QMetaObject.invokeMethod(finish, "clicked")
+    assert toggle is not None and approve is not None
+    assert QMetaObject.invokeMethod(toggle, "toggle")
+    wait_until(lambda: model.handsFree and model.state == "wake")
+    wake_gate.set()
     wait_until(lambda: model.approvalPending and model.needsWindow)
+    wake_gate.clear()
     assert len(model.windowChoices) == 1 and "Notepad" in model.windowChoices[0]
+    model.selectWindow(0)
     assert QMetaObject.invokeMethod(approve, "clicked")
-    wait_until(lambda: not model.busy)
-    assert services.backend.calls == [("Notepad", "hello")]
-    assert model.status == "Fake typing action completed."
+    wait_until(lambda: services.backend.calls == [("Notepad", "hello")] and not model.busy)
+    model.setHandsFree(False, False, False)
+    wait_until(lambda: not model.handsFree)
     close_preview(engine)
 
 
-def test_voice_recording_and_website_confirmation_are_connected():
-    import threading
-
+def test_handsfree_wake_and_website_confirmation_are_connected():
     from vox.agent.groq_tools import GroqRegistry
     from vox.agent.tools import ToolResult
     from vox.ui.app import create_live
@@ -269,13 +288,10 @@ def test_voice_recording_and_website_confirmation_are_connected():
         def __init__(self):
             self.backend = Backend()
             self.registry = GroqRegistry(self.backend)
-            self.capture_started = threading.Event()
+            self.processed = []
 
-        def voice(self, finished, cancelled, dry_run, on_processing):
-            self.capture_started.set()
-            while not finished() and not cancelled():
-                threading.Event().wait(0.01)
-            on_processing()
+        def process_audio(self, wav, dry_run, cancelled):
+            self.processed.append(wav)
             action = self.registry.plan(
                 {
                     "tool_calls": [
@@ -291,26 +307,32 @@ def test_voice_recording_and_website_confirmation_are_connected():
             )
             return Outcome(pending=action, transcript="Open example dot com")
 
+        def speak(self, text, cancelled):
+            pass
+
     app = QGuiApplication.instance() or QGuiApplication([])
     engine, model = create_live(app)
     services = Services()
-    model._services = services
+    wake_gate = handsfree_harness(model, services)
     root = engine.rootObjects()[0]
     speak = root.findChild(QObject, "speak")
     speak.setProperty("checked", False)
-    record = root.findChild(QObject, "recordButton")
-    finish = root.findChild(QObject, "finishButton")
+    toggle = root.findChild(QObject, "handsFreeToggle")
     approve = root.findChild(QObject, "approveButton")
-    assert QMetaObject.invokeMethod(record, "clicked")
-    wait_until(lambda: services.capture_started.is_set())
-    assert model.recording and model.busy
-    assert QMetaObject.invokeMethod(finish, "clicked")
+    assert toggle is not None and approve is not None
+    # Nothing may be captured or processed before the wake phrase.
+    assert QMetaObject.invokeMethod(toggle, "toggle")
+    wait_until(lambda: model.handsFree and model.state == "wake")
+    wait(150)
+    assert services.processed == [] and services.backend.calls == []
+    wake_gate.set()
     wait_until(lambda: model.approvalPending)
+    wake_gate.clear()
     assert not model.recording and model.transcript == "Open example dot com"
     assert "https://example.com/" in model.approvalText
     assert services.backend.calls == []
     assert QMetaObject.invokeMethod(approve, "clicked")
-    wait_until(lambda: not model.busy)
-    assert services.backend.calls == ["https://example.com/"]
-    assert model.status == "Fake browser action completed."
+    wait_until(lambda: services.backend.calls == ["https://example.com/"] and not model.busy)
+    model.setHandsFree(False, False, False)
+    wait_until(lambda: not model.handsFree)
     close_preview(engine)

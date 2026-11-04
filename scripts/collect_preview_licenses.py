@@ -23,6 +23,7 @@ PACKAGES = (
     "pefile",
     "pywin32-ctypes",
     "sounddevice",
+    "vosk",
 )
 
 

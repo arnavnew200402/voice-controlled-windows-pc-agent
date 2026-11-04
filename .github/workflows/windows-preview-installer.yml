@@ -21,8 +21,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7"
+      - name: Download offline wake-word model (bundled; no first-run download)
+        shell: pwsh
+        run: |
+          $zip = "vosk-model-small-en-us-0.15.zip"
+          Invoke-WebRequest -Uri "https://alphacephei.com/vosk/models/$zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath wake-model -Force
+          if (!(Test-Path "wake-model/vosk-model-small-en-us-0.15/am")) { throw "Wake-word model layout unexpected" }
       - name: Build application
-        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxGroq --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'continue'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxGroq --paths . --collect-all vosk --add-data "vox/ui/qml;vox/ui/qml" --add-data "wake-model;vox/wake-model" scripts/windows_entry.py 2>&1 | Tee-Object -FilePath pyinstaller-output.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $lines = Get-Content pyinstaller-output.txt -Tail 100
+            for ($i = 0; $i -lt $lines.Count; $i += 25) {
+              $end = [Math]::Min($i + 24, $lines.Count - 1)
+              $chunk = ($lines[$i..$end] -join "`n")
+              $escaped = $chunk -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+              Write-Host ('::error title=PyInstaller failure tail part ' + ([int]($i / 25) + 1) + '::' + $escaped)
+            }
+          }
+          exit $code
       - name: Keep only the standard x64 PortAudio runtime
         shell: pwsh
         run: |

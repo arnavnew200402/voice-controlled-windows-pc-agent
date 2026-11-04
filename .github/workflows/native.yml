@@ -17,6 +17,7 @@ jobs:
           - tests/test_demo_worker.py
           - tests/test_native_agent.py
           - tests/test_groq_voice.py
+          - tests/test_handsfree.py
           - tests/test_ui_demo.py
     steps:
       - uses: actions/checkout@v4

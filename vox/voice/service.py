@@ -1,4 +1,4 @@
-"""Real Groq push-to-talk pipeline; no Qt or continuous microphone capture."""
+"""Real Groq voice pipeline shared by push-to-talk and hands-free capture."""
 
 from __future__ import annotations
 
@@ -78,6 +78,18 @@ class GroqVoiceService:
         if cancelled():
             raise ProviderError("Recording cancelled.")
         on_processing()
+        return self.process_audio(wav, dry_run, cancelled, client=client)
+
+    def process_audio(
+        self,
+        wav: bytes,
+        dry_run: bool,
+        cancelled: Callable[[], bool],
+        *,
+        client: GroqClient | None = None,
+    ) -> Outcome:
+        """Transcribe a captured request and run the same planning path as text."""
+        client = client or self._client()
         transcript = client.transcribe(wav)
         if cancelled():
             raise ProviderError("Request cancelled before any action.")

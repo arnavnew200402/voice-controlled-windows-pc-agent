@@ -20,8 +20,8 @@ before the screenshot step. Use your own Groq API key; never share it in issues.
   (*More info → Run anyway*). Note any other error verbatim.
 - [ ] App appears in the Start menu and launches without missing-DLL or
   Python errors; the notch/control UI renders at your display scaling.
-- [ ] Dry-run is easy to find; microphone is **not** active until you press
-  push-to-talk.
+- [ ] Dry-run is easy to find; the header pill says **MICROPHONE OFF** and the
+  microphone stays inactive until you switch **Hands-free** on.
 
 ## 2. Groq key (DPAPI)
 - [ ] Paste your Groq API key and save. Status confirms DPAPI save.
@@ -31,10 +31,17 @@ before the screenshot step. Use your own Groq API key; never share it in issues.
   bad key is not echoed anywhere.
 
 ## 3. Voice loop (live Groq)
-- [ ] Push-to-talk: Windows microphone permission prompt appears the first
-  time; deny it once and confirm a clear error, then allow it.
-- [ ] Say “Open Calculator”, finish recording. Transcript shown matches speech;
-  Calculator opens. Recording indicator was visible only while recording.
+- [ ] Turn **Hands-free** on: Windows microphone permission prompt appears the
+  first time; deny it once and confirm a clear error, then allow it. The pill
+  reads **LISTENING FOR 'HI VOX'**. The installed build bundles the offline
+  wake-word model (a from-source run downloads ~40 MB once on first enable).
+- [ ] Talk normally *without* the wake phrase for a few sentences: nothing is
+  transcribed, sent, or acted on (wake listening is local only).
+- [ ] Say “Hi Vox”, pause a beat, then “Open Calculator”. Recording stops by
+  itself when you stop speaking; transcript shown matches speech; Calculator
+  opens; the app returns to **LISTENING FOR 'HI VOX'** by itself.
+- [ ] Say “Hi Vox” and then nothing: after a few seconds it quietly returns
+  to listening for the wake phrase.
 - [ ] Enable spoken replies: the result is spoken through your speakers
   (Orpheus TTS) and matches the on-screen evidence.
 - [ ] Say something unsupported (e.g. “restart the PC”): clear refusal,
@@ -68,7 +75,8 @@ reusable (acting again requires a new approval).
   no user or machine name appears.
 
 ## 5. Stop / expiry
-- [ ] Start a request, press Stop mid-way: recording/network stops; nothing
+- [ ] With Hands-free on, press Stop: it switches fully off (pill reads
+  MICROPHONE OFF). Start a request, press Stop mid-way: recording stops; nothing
   was executed (or an already-started action is reported honestly).
 - [ ] Leave an approval card untouched ~20 s: approving afterwards fails as
   expired and nothing executes.
