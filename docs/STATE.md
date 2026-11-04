@@ -8,7 +8,7 @@
 - Separate actual online preview UI (`--ui`) connects browser sign-in and typed requests to that restricted path. It discloses online use, enables dry run by default and implements cooperative stop (not an isolated worker). `--ui-demo` remains simulated.
 - Screenshot: `artifacts/ui/native/online-preview.png`, captured with Linux offscreen software rendering; not Windows or GPU evidence.
 - 2026-11-04 Linux: **68 passed, 1 Windows-only DPAPI skipped**; Ruff, format check, mypy and Python-entry Qt offscreen smoke passed. Tests use fake provider/credentials; no real Notepad launch.
-- Windows x64 per-user Inno Setup/PyInstaller preview workflow configured. First Windows CI run was cancelled after tests hung for over three minutes; follow-up adds per-test timeouts and splits test steps; build result pending.
+- Windows x64 per-user Inno Setup/PyInstaller preview workflow configured. First Windows CI run was cancelled after tests hung for over three minutes; follow-up adds per-test timeouts and splits test steps but Windows non-UI tests still hung. The preview build job is independent of the test job so packaging can be investigated without claiming tests passed; build result pending.
 
 ## In progress / limitations
 - Full voice, general PC control, production approvals/policy/audit, isolated workers, socket-level offline guard and complete installer acceptance criteria do not exist.

@@ -9,18 +9,16 @@ permissions:
   contents: read
 
 jobs:
-  installer:
+  checks:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7" "pytest-timeout>=2.3,<3"
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pytest-timeout>=2.3,<3"
       - name: Test non-UI components (no real desktop actions)
         timeout-minutes: 3
         shell: pwsh
@@ -49,6 +47,18 @@ jobs:
             Write-Output "::error::Qt tests failed or timed out. Last test: $last"
             exit $code
           }
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7" "pytest-timeout>=2.3,<3"
       - name: Build application
         run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxPreview --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
       - name: Add third-party notices
@@ -59,7 +69,8 @@ jobs:
           QT_QUICK_BACKEND: software
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist/VoxPreview/VoxPreview.exe" -ArgumentList "--smoke-test" -PassThru -Wait
+          $p = Start-Process -FilePath "dist/VoxPreview/VoxPreview.exe" -ArgumentList "--smoke-test" -PassThru
+          if (!$p.WaitForExit(90000)) { $p.Kill(); throw "Packaged smoke test timed out" }
           if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
           if ($p.ExitCode -ne 0) { throw "Packaged app smoke test failed ($($p.ExitCode))" }
           if (!(Test-Path vox-smoke-test.txt)) { throw "No smoke test result was created" }
@@ -81,7 +92,8 @@ jobs:
           $target = Join-Path $env:RUNNER_TEMP "VoxPreviewTest"
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "Installer failed ($($p.ExitCode))" }
-          $p = Start-Process -FilePath (Join-Path $target 'VoxPreview.exe') -ArgumentList '--smoke-test' -PassThru -Wait
+          $p = Start-Process -FilePath (Join-Path $target 'VoxPreview.exe') -ArgumentList '--smoke-test' -PassThru
+          if (!$p.WaitForExit(90000)) { $p.Kill(); throw "Installed smoke test timed out" }
           if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
           if ($p.ExitCode -ne 0 -or !(Test-Path vox-smoke-test.txt)) { throw "Installed app smoke test failed" }
       - name: Generate checksum and copy readme
