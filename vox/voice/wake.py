@@ -22,6 +22,7 @@ import sys
 import urllib.request
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -44,7 +45,7 @@ WAKE_PHRASES = (
     "hey fox",
 )
 
-_STRONG_GREETINGS = {"hi", "hey", "ok", "okay"}
+_STRONG_GREETINGS = {"hi", "hey", "ok", "okay", "hai"}
 _WEAK_GREETINGS = {"high", "hay", "he", "i"}  # plausible mis-hearings of "hi"
 _NAME_VARIANTS = {
     "vox",
@@ -70,21 +71,74 @@ class WakeEngine(Protocol):
     def feed(self, frame: bytes) -> bool: ...
 
 
+@dataclass(frozen=True)
+class ScoredSnippet:
+    """One recognizer snippet for two-stage verification (LE1b)."""
+
+    text: str
+    final: bool
+    confidence: float | None  # mean word confidence on finals; None on partials
+
+
+class ScoredWakeEngine(Protocol):
+    def feed_scored(self, frame: bytes) -> ScoredSnippet | None: ...
+
+    def reset(self) -> None: ...
+
+
 def _tokens(text: str) -> list[str]:
     return "".join(char.lower() if char.isalnum() else " " for char in text).split()
 
 
-def contains_wake_phrase(text: str) -> bool:
-    """True when a recognized snippet contains a wake phrase as whole words."""
+def contains_wake_phrase(
+    text: str,
+    *,
+    strong: frozenset[str] | set[str] = _STRONG_GREETINGS,
+    weak: frozenset[str] | set[str] = _WEAK_GREETINGS,
+    names: frozenset[str] | set[str] = _NAME_VARIANTS,
+    merged: frozenset[str] | set[str] = _MERGED,
+    canonical: str = "vox",
+) -> bool:
+    """True when a recognized snippet contains a wake phrase as whole words.
+
+    The token sets are parameters so the Live Engine can build them from
+    wake settings/i18n (custom assistant name) while the legacy hands-free
+    path keeps the defaults above.
+    """
     tokens = _tokens(text)
-    if any(token in _MERGED for token in tokens):
+    if any(token in merged for token in tokens):
         return True
     for greeting, name in itertools.pairwise(tokens):
-        if greeting in _STRONG_GREETINGS and name in _NAME_VARIANTS:
+        if greeting in strong and name in names:
             return True
-        if greeting in _WEAK_GREETINGS and name == "vox":
+        if greeting in weak and name == canonical:
             return True
     return False
+
+
+def strip_wake_tokens(
+    text: str,
+    *,
+    strong: frozenset[str] | set[str] = _STRONG_GREETINGS,
+    weak: frozenset[str] | set[str] = _WEAK_GREETINGS,
+    names: frozenset[str] | set[str] = _NAME_VARIANTS,
+    merged: frozenset[str] | set[str] = _MERGED,
+    canonical: str = "vox",
+) -> str:
+    """Remove one leading wake phrase from a transcript ("Hi Vox, open…").
+
+    Alias-set based token surgery only — this is not intent routing (L-10).
+    Returns the remaining words space-joined ("" for a bare wake phrase);
+    text without a leading wake phrase is returned tokenized-normalized.
+    """
+    tokens = _tokens(text)
+    if tokens and tokens[0] in merged:
+        return " ".join(tokens[1:])
+    if len(tokens) >= 2:
+        greeting, name = tokens[0], tokens[1]
+        if (greeting in strong and name in names) or (greeting in weak and name == canonical):
+            return " ".join(tokens[2:])
+    return " ".join(tokens)
 
 
 def _model_root_candidates() -> list[Path]:
@@ -185,7 +239,8 @@ class VoskWakeEngine:
             self._recognizer = vosk.KaldiRecognizer(model, 16000)
         except (OSError, RuntimeError, ValueError) as exc:
             raise WakeError("The wake-word model could not be loaded.") from exc
-        self._recognizer.SetWords(False)
+        # Word-level results give stage-2 verification its confidence input.
+        self._recognizer.SetWords(True)
         self._on_heard: Callable[[str], None] | None = None
         self._last_heard = ""
 
@@ -204,26 +259,58 @@ class VoskWakeEngine:
             if self._on_heard is not None:
                 self._on_heard(cleaned)
 
-    def feed(self, frame: bytes) -> bool:
+    def reset(self) -> None:
+        self._recognizer.Reset()
+
+    def feed_scored(self, frame: bytes) -> ScoredSnippet | None:
+        """Recognize one frame; None when nothing was heard in it.
+
+        Unlike :meth:`feed`, this never resets the recognizer — the
+        two-stage verifier decides when a match is accepted/consumed.
+        """
         if self._recognizer.AcceptWaveform(frame):
-            text = self._snippet(self._recognizer.Result(), "text")
+            parsed = self._parse(self._recognizer.Result())
+            text = parsed.get("text")
+            if not isinstance(text, str) or not text.strip():
+                return None
             self._emit_heard(text)
-            if contains_wake_phrase(text):
-                self._recognizer.Reset()
-                return True
-            return False
+            return ScoredSnippet(
+                text=" ".join(text.split()), final=True, confidence=self._mean_confidence(parsed)
+            )
         partial = self._snippet(self._recognizer.PartialResult(), "partial")
+        if not partial.strip():
+            return None
         self._emit_heard(partial)
-        if contains_wake_phrase(partial):
+        return ScoredSnippet(text=" ".join(partial.split()), final=False, confidence=None)
+
+    def feed(self, frame: bytes) -> bool:
+        snippet = self.feed_scored(frame)
+        if snippet is not None and contains_wake_phrase(snippet.text):
             self._recognizer.Reset()
             return True
         return False
 
     @staticmethod
-    def _snippet(payload: Any, key: str) -> str:
+    def _parse(payload: Any) -> dict[str, Any]:
         try:
             parsed = json.loads(payload)
         except (TypeError, ValueError):
-            return ""
-        value = parsed.get(key) if isinstance(parsed, dict) else None
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _mean_confidence(parsed: dict[str, Any]) -> float | None:
+        words = parsed.get("result")
+        if not isinstance(words, list) or not words:
+            return None
+        confs = [
+            float(word["conf"])
+            for word in words
+            if isinstance(word, dict) and isinstance(word.get("conf"), (int, float))
+        ]
+        return sum(confs) / len(confs) if confs else None
+
+    @staticmethod
+    def _snippet(payload: Any, key: str) -> str:
+        value = VoskWakeEngine._parse(payload).get(key)
         return value if isinstance(value, str) else ""

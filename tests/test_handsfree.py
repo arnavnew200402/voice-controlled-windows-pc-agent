@@ -446,3 +446,58 @@ def test_winsound_player_rejects_invalid_wav(monkeypatch):
     )
     with pytest.raises(audio.AudioError):
         audio.WinsoundPlayer().play(b"not a wav")
+
+
+def test_strip_wake_tokens():
+    from vox.voice.wake import strip_wake_tokens
+
+    assert strip_wake_tokens("Hi Vox, open Chrome") == "open chrome"
+    assert strip_wake_tokens("hey box open notepad") == "open notepad"
+    assert strip_wake_tokens("Hi Vox") == ""
+    assert strip_wake_tokens("hivox mute it") == "mute it"
+    assert strip_wake_tokens("open chrome") == "open chrome"
+    assert strip_wake_tokens("the hi vox show") == "the hi vox show"  # not leading
+
+
+def test_vosk_engine_feed_scored_reports_confidence(monkeypatch):
+    import json
+    import types
+    from pathlib import Path
+
+    class FakeRecognizer:
+        def SetWords(self, value):
+            self.words = value
+
+        def AcceptWaveform(self, frame):
+            return frame == b"final"
+
+        def Result(self):
+            return json.dumps(
+                {
+                    "text": "hi vox",
+                    "result": [
+                        {"conf": 0.9, "word": "hi"},
+                        {"conf": 0.7, "word": "vox"},
+                    ],
+                }
+            )
+
+        def PartialResult(self):
+            return json.dumps({"partial": "hi"})
+
+        def Reset(self):
+            pass
+
+    recognizer = FakeRecognizer()
+    fake_vosk = types.SimpleNamespace(
+        Model=lambda path: object(),
+        KaldiRecognizer=lambda model, rate: recognizer,
+        SetLogLevel=lambda level: None,
+    )
+    monkeypatch.setattr(wake.importlib, "import_module", lambda name: fake_vosk)
+    engine = wake.VoskWakeEngine(model_path=Path("fake-model"))
+    partial = engine.feed_scored(b"chunk")
+    assert partial is not None and not partial.final and partial.confidence is None
+    final = engine.feed_scored(b"final")
+    assert final is not None and final.final and final.confidence == 0.8
+    assert engine.feed(b"final") is True  # legacy bool path still works
