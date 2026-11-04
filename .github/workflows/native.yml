@@ -25,11 +25,22 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3" "pytest-timeout>=2.3,<3"
       - name: Run isolated test file (no real desktop actions)
-        run: python -m pytest ${{ matrix.test }} -m "not desktop" -v --timeout=25 --timeout-method=thread
+        shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
           VOX_REQUIRE_UI_TESTS: '1'
+        run: |
+          $ErrorActionPreference = 'continue'
+          python -m pytest ${{ matrix.test }} -m "not desktop" -v --timeout=25 --timeout-method=thread 2>&1 | Tee-Object -FilePath pytest-output.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            "### pytest failure tail: ${{ matrix.test }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            '```text' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            Get-Content pytest-output.txt -Tail 150 | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            '```' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          }
+          exit $code
   lint:
     runs-on: windows-latest
     timeout-minutes: 5
