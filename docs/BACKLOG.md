@@ -48,3 +48,10 @@
 
 - [x] M8-01a Build unsigned per-user online-only early preview installer and verify packaged and installed Qt rendering offscreen in Windows Actions.
 - [ ] M8-02 Diagnose stalled Windows non-UI CI checks and verify Qt tests and complete suite on Windows; do not treat installer smoke as a complete test pass.
+
+## Groq voice vertical slice
+- [x] M2-03 User-supplied Groq API key in Windows DPAPI, bounded push-to-talk microphone capture, Groq Whisper transcription, Groq tool calling and optional Orpheus speech; fake contracts and Qt wiring tests.
+- [x] M4-05 Fixed Windows Notepad, Calculator and Paint launch, plus HTTPS browser action with expiring bound click approval; dry-run option and fake backends.
+- [ ] M2-04 Validate real Windows microphone, playback, live Groq key/model access, STT, tool calling and TTS end-to-end on a disposable PC.
+- [ ] M4-06 Implement remaining PC control safely with production policy/audit, isolated cancellation and verified Windows backends; do not enable arbitrary shell or destructive tools prematurely.
+- [ ] M8-03 Observe Groq installer and file-level Windows CI; test install/uninstall on clean Windows VM; sign and review dependency licensing.

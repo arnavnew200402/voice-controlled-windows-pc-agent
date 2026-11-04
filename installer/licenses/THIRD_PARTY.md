@@ -6,3 +6,5 @@ The preview uses PySide6 Essentials / Qt 6.8.3 and Shiboken6 under the LGPL-3.0-
 - Qt 6.8.3: https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/
 
 Other Python runtime and package license notices are collected alongside this file from the installed distributions at build time. PyInstaller's bootloader exception permits distribution of the resulting executable; its licence is included in the package. See `NOTICE.md` for upstream design credits. No speech models or voices are bundled in this preview.
+
+The sounddevice package (MIT) includes a PortAudio dynamic library (MIT). The PortAudio license is in `PORTAUDIO-LICENSE.txt`; the build removes ASIO, 32-bit and ARM variants from this x64 installer. No Groq models are distributed with the application; Groq processes requests online.

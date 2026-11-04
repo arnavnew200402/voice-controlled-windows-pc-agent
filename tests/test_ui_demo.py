@@ -95,47 +95,132 @@ def test_studio_buttons_drive_sandbox_events():
     assert not worker.alive()
 
 
-def test_online_preview_is_wired_to_background_services():
+def test_groq_ui_is_wired_to_background_services():
     import threading
 
+    from vox.agent.groq_tools import GroqRegistry
     from vox.agent.tools import ToolResult
     from vox.ui.app import create_live
+    from vox.voice.service import Outcome
+
+    class Backend:
+        def open_app(self, name):
+            raise AssertionError("real app must not open")
+
+        def open_website(self, url):
+            raise AssertionError("real browser must not open")
 
     class Services:
         def __init__(self):
-            self.called = threading.Event()
             self.thread_id = 0
             self.last_request = None
+            self.saved = None
+            self.registry = GroqRegistry(Backend())
 
-        def login(self, cancelled):
-            self.thread_id = threading.get_ident()
-            return ToolResult(ok=True, evidence="Fake login completed.")
+        def save_key(self, key):
+            self.saved = key
 
-        def text(self, text, dry_run, cancelled):
+        def submit(self, text, dry_run, cancelled):
             self.thread_id = threading.get_ident()
             self.last_request = (text, dry_run)
-            self.called.set()
-            return ToolResult(ok=True, simulated=True, evidence="Fake dry-run result.")
+            return Outcome(result=ToolResult(ok=True, evidence="Fake result."))
+
+        def speak(self, text, cancelled):
+            pass
 
     app = QGuiApplication.instance() or QGuiApplication([])
     engine, model = create_live(app)
     services = Services()
     model._services = services
     root = engine.rootObjects()[0]
-    login_button = root.findChild(QObject, "loginButton")
+    key_input = root.findChild(QObject, "keyInput")
+    save = root.findChild(QObject, "saveKeyButton")
     input_field = root.findChild(QObject, "requestInput")
     dry_run = root.findChild(QObject, "dryRun")
-    run_button = root.findChild(QObject, "runButton")
-    assert all(x is not None for x in (login_button, input_field, dry_run, run_button))
-    assert dry_run.property("checked") is True
-    assert QMetaObject.invokeMethod(login_button, "clicked")
-    wait_until(lambda: not model.busy)
-    assert model.status == "Fake login completed."
-    assert services.thread_id != threading.get_ident()
+    speak = root.findChild(QObject, "speak")
+    run = root.findChild(QObject, "runButton")
+    assert all(x is not None for x in (key_input, save, input_field, dry_run, speak, run))
+    key_input.setProperty("text", "fake-key")
+    assert QMetaObject.invokeMethod(save, "clicked")
+    assert services.saved == "fake-key"
+    assert key_input.property("text") == ""
+    assert dry_run.property("checked") is False
+    dry_run.setProperty("checked", True)
+    speak.setProperty("checked", False)
     input_field.setProperty("text", "Open Notepad")
-    assert QMetaObject.invokeMethod(run_button, "clicked")
+    assert QMetaObject.invokeMethod(run, "clicked")
     wait_until(lambda: not model.busy)
     assert services.last_request == ("Open Notepad", True)
-    assert model.status == "Fake dry-run result."
-    assert model.state == "result"
+    assert services.thread_id != threading.get_ident()
+    assert model.status == "Fake result."
+    close_preview(engine)
+
+
+def test_voice_recording_and_website_confirmation_are_connected():
+    import threading
+
+    from vox.agent.groq_tools import GroqRegistry
+    from vox.agent.tools import ToolResult
+    from vox.ui.app import create_live
+    from vox.voice.service import Outcome
+
+    class Backend:
+        def __init__(self):
+            self.calls = []
+
+        def open_app(self, name):
+            raise AssertionError("not expected")
+
+        def open_website(self, url):
+            self.calls.append(url)
+            return ToolResult(ok=True, evidence="Fake browser action completed.")
+
+    class Services:
+        def __init__(self):
+            self.backend = Backend()
+            self.registry = GroqRegistry(self.backend)
+            self.capture_started = threading.Event()
+
+        def voice(self, finished, cancelled, dry_run, on_processing):
+            self.capture_started.set()
+            while not finished() and not cancelled():
+                threading.Event().wait(0.01)
+            on_processing()
+            action = self.registry.plan(
+                {
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "open_website",
+                                "arguments": '{"url":"https://example.com/"}',
+                            },
+                        }
+                    ]
+                }
+            )
+            return Outcome(pending=action, transcript="Open example dot com")
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    engine, model = create_live(app)
+    services = Services()
+    model._services = services
+    root = engine.rootObjects()[0]
+    speak = root.findChild(QObject, "speak")
+    speak.setProperty("checked", False)
+    record = root.findChild(QObject, "recordButton")
+    finish = root.findChild(QObject, "finishButton")
+    approve = root.findChild(QObject, "approveButton")
+    assert QMetaObject.invokeMethod(record, "clicked")
+    wait_until(lambda: services.capture_started.is_set())
+    assert model.recording and model.busy
+    assert QMetaObject.invokeMethod(finish, "clicked")
+    wait_until(lambda: model.approvalPending)
+    assert not model.recording and model.transcript == "Open example dot com"
+    assert "https://example.com/" in model.approvalText
+    assert services.backend.calls == []
+    assert QMetaObject.invokeMethod(approve, "clicked")
+    wait_until(lambda: not model.busy)
+    assert services.backend.calls == ["https://example.com/"]
+    assert model.status == "Fake browser action completed."
     close_preview(engine)

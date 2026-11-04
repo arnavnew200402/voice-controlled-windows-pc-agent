@@ -22,11 +22,12 @@ PACKAGES = (
     "altgraph",
     "pefile",
     "pywin32-ctypes",
+    "sounddevice",
 )
 
 
 def main() -> None:
-    dest = Path("dist/VoxPreview/licenses")
+    dest = Path("dist/VoxGroq/licenses")
     dest.mkdir(parents=True, exist_ok=True)
     for package in PACKAGES:
         try:
@@ -46,8 +47,8 @@ def main() -> None:
     for source in Path("installer/licenses").iterdir():
         if source.is_file():
             shutil.copy2(source, dest / source.name)
-    shutil.copy2("installer/README.txt", "dist/VoxPreview/README.txt")
-    shutil.copy2("NOTICE.md", "dist/VoxPreview/NOTICE.md")
+    shutil.copy2("installer/README.txt", "dist/VoxGroq/README.txt")
+    shutil.copy2("NOTICE.md", "dist/VoxGroq/NOTICE.md")
 
 
 if __name__ == "__main__":

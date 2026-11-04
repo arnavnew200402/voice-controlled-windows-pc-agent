@@ -10,3 +10,5 @@
 
 7. Windows CI non-UI tests have repeatedly stalled (runs 41853900417, 41854602921, 41856192982), including a diagnostic run with a bounded subprocess. At last check the diagnostic job was still in progress. The independent installer job passed an offscreen packaging/install smoke, but that does not establish that the test suite, desktop control or OAuth works. Investigate on a Windows runner before any milestone merge.
 8. GitHub Actions stores artifact ZIPs on a host outside this sandbox's allowlist, so the successful preview ZIP could not be downloaded into the workspace. It is available through the GitHub Actions UI to an authorized user until 2026-12-04.
+
+9. Groq endpoints, microphone hardware, Windows DPAPI, speaker playback and interactive desktop are unavailable in this sandbox. Real Groq voice and Windows actions require an authorized key and a disposable Windows test system; do not ask the user to send the key in chat.

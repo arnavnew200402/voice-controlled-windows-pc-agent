@@ -7,7 +7,7 @@ import os
 def main() -> None:
     parser = argparse.ArgumentParser(description="Experimental Windows agent foundation")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--ui", action="store_true", help="Open the limited online Windows preview")
+    mode.add_argument("--ui", action="store_true", help="Open the limited Groq voice control app")
     mode.add_argument("--ui-demo", action="store_true", help="Open the sandbox-only notch studio")
     mode.add_argument("--login", action="store_true", help="Sign in with ChatGPT in your browser")
     mode.add_argument("--text", metavar="REQUEST", help="Run one text request")

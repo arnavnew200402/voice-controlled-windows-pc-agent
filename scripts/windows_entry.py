@@ -12,6 +12,10 @@ def smoke_test() -> int:
 
         from vox.ui.app import close_preview, create_live
 
+        if sys.platform == "win32":
+            import sounddevice as sd
+
+            sd.get_portaudio_version()  # Load packaged PortAudio; no microphone capture.
         app = QGuiApplication(sys.argv[:1])
         engine, model = create_live(app)
         loop = QEventLoop()

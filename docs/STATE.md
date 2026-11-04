@@ -1,42 +1,41 @@
 # STATE
 
-**Milestone:** Experimental M3/M8 online-only text preview in progress. M1–M8 full-agent exit criteria remain unmet. ChatGPT is the current default; Ollama is deferred.
+**Milestone:** Real Groq voice vertical slice in progress. The complete voice-first Windows agent and M1–M8 exit criteria remain unmet. The user changed provider priority from ChatGPT OAuth to Groq API key.
 
 ## Done
-- Web reference implementation and simulation, native notch studio and sandbox are documented separately.
-- Experimental ChatGPT-plan OAuth, Windows DPAPI store and streamed Responses provider; restricted T0 Notepad-only text registry with dry run. Real OpenAI and Windows use remain unverified.
-- Separate actual online preview UI (`--ui`) connects browser sign-in and typed requests to that restricted path. It discloses online use, enables dry run by default and implements cooperative stop (not an isolated worker). `--ui-demo` remains simulated.
-- Screenshot: `artifacts/ui/native/online-preview.png`, captured with Linux offscreen software rendering; not Windows or GPU evidence.
-- 2026-11-04 Linux: **68 passed, 1 Windows-only DPAPI skipped**; Ruff, format check, mypy and Python-entry Qt offscreen smoke passed. Tests use fake provider/credentials; no real Notepad launch.
-- Windows x64 per-user Inno Setup/PyInstaller preview jobs succeeded in GitHub Actions runs 41855510009 and 41856192982: packaged app rendered offscreen, installer ran in the runner temporary directory, and installed app rendered offscreen. Artifact `vox-windows-early-preview` from run 41856192982 is available via GitHub until 2026-12-04; GitHub login may be required. Direct sandbox download failed because the artifact storage host is outside the permitted network. The separate Windows non-UI tests hung despite timeout and isolation attempts; at last check the job was still in progress, and packaging success is not a full test pass.
+- Existing web reference and native simulation remain developer-only. The installed native UI is now connected to real (not simulated) Groq push-to-talk services.
+- User-entered Groq key is DPAPI-protected per Windows account, removable in UI, never logged; no real key used in tests.
+- Explicit, bounded 15-second microphone capture to memory, Groq Whisper STT, Groq chat tool calling and optional Orpheus TTS/WAV playback. Recording and network activity have visible indicators; no continuous listening or screen capture. TTS runs only after recording closes.
+- Closed action registry: Notepad, Calculator, Paint and HTTPS websites. Websites require a single-use, argument-bound 15-second click approval; dry run available. Model-supplied paths, shell commands, arbitrary apps and unsupported tools are rejected.
+- Linux 2026-11-04: **90 passed, 1 Windows-only DPAPI skipped**; Ruff, formatting, mypy and Qt offscreen startup smoke passed, using fakes and no real network/microphone/desktop actions. Screenshot: `artifacts/ui/native/groq-voice.png` (Linux offscreen, not Windows evidence).
+- Windows Groq installer workflow prepared; **new build result pending**. Older ChatGPT-only preview artifact is not a Groq installer.
 
 ## In progress / limitations
-- Full voice, general PC control, production approvals/policy/audit, isolated workers, socket-level offline guard and complete installer acceptance criteria do not exist.
-- Cooperative stop is best-effort: an already-started action cannot be undone and network calls can run until timeout; window closure does not guarantee instantaneous cancellation.
-- No interactive Windows desktop/OpenAI/DPAPI/Notepad verification, live plan validation, token refresh, app-side logout/revocation, or account switching. Sign in again on expiry; disconnect access in ChatGPT settings. Windows CI build is pending.
-- Installer is unsigned, online-only and explicitly labeled early preview; legal packaging notices included but distribution compliance still needs independent review. Not a release of the full agent.
+- No end-to-end live Groq, microphone, TTS, DPAPI or desktop validation on Windows. Groq model access, quotas and costs depend on the user's account. Sandbox cannot reach Groq.
+- The voice flow is push-to-talk only; no wake word, loopback verification, speaker verification, persistent task engine, general PC automation, production audit, protected policy integration, isolated workers or offline mode. Website approval is local UI click, not a verified physical-input security boundary.
+- Stop is cooperative and cannot undo actions already started or immediately preempt all network calls/playback; website approval is revoked on stop.
+- The existing Windows non-UI CI repeatedly hung. New per-file matrix is a different diagnostic approach; results pending. The installer build job is independent; packaging success must not be presented as a test-suite pass.
+- Prior ChatGPT and Ollama CLI paths are separate and experimental; no OAuth refresh/revocation. The old fake studio remains accessible only as a developer harness.
+- Full installer/signing/legal review, clean-VM install/uninstall, safety/red-team/benchmark, real Windows DPI/focus, and milestone acceptance remain open. No merge to main before required exit criteria pass.
 
 ## Next 5 tasks
-1. Diagnose the stalled Windows non-UI CI tests and complete the separate Qt test job; do not merge until exit criteria pass.
-2. Test the installer, DPAPI, SIWC sign-in, inference, Notepad and uninstall on a clean Windows 10/11 VM using an authorized test account.
-3. Add serialized OAuth refresh, revocation/sign-out and account management with adversarial tests.
-4. Integrate production policy/audit and isolated workers with verified emergency stop before expanding desktop tools.
-5. Implement and validate voice, offline guard, Windows UI behavior, model benchmarks, signing and full installer acceptance.
+1. Observe new Windows matrix and Groq installer build; diagnose any failures without treating smoke tests as live validation.
+2. Test Groq key storage, microphone permissions, live transcription/chat/TTS, playback and the supported app actions on a disposable Windows 10/11 system with user-provided authorized key.
+3. Build a reviewed, argument-bound policy/audit and cancellation isolation before broadening desktop, browser and file tools; extend tests including prompt injection and approvals.
+4. Implement remaining task engine, voice/wake-word/audio loopback protections, robust hotkeys, full Windows integration, and honest capability reporting.
+5. Complete offline mode, model acceptance benchmarks, installer signing/legal review, clean-VM install/uninstall, soak and desktop tests before merging.
 
 ## Blockers
-This environment is Linux, cannot access OpenAI endpoints, and cannot verify real Windows desktop/GPU behavior or live account entitlement. Windows hosted workflow availability and an authorized clean VM remain necessary. See `BLOCKERS.md`.
+No Windows desktop or microphone here; outbound sandbox access excludes Groq. GitHub Actions artifacts cannot be downloaded into the workspace because their storage host is outside the allowlist. See `BLOCKERS.md`.
 
 ## Commands
 Windows Python 3.11+:
 ```powershell
-python -m pip install -e ".[dev,ui]"
+python -m pip install -e ".[dev,ui,voice]"
 python -m vox --ui
-python -m vox --login
-python -m vox --text "Open Notepad" --dry-run
-python -m vox --ui-demo
 python -m pytest -m "not desktop" -q
 python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py
 python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py
 python -m mypy
 ```
-Linux sandbox tests: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software VOX_REQUIRE_UI_TESTS=1 LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.python-deps python -m pytest -m 'not desktop' -q`. Smoke: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.:.python-deps python scripts/windows_entry.py --smoke-test`. Scratch libraries under `.python-deps` are not shipped. Windows build commands are in `.github/workflows/windows-preview-installer.yml`. Login and requests require online ChatGPT plan consent; `--provider ollama --model YOUR_MODEL` selects the deferred local CLI path.
+Linux sandbox: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software VOX_REQUIRE_UI_TESTS=1 LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.python-deps python -m pytest -m 'not desktop' -q`. Offscreen entry smoke: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.:.python-deps python scripts/windows_entry.py --smoke-test`. `.python-deps` contains scratch-only dependencies and is not shipped.

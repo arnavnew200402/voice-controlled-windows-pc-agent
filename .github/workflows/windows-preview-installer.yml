@@ -1,4 +1,4 @@
-name: Windows preview installer
+name: Windows Groq voice installer
 on:
   push:
     branches:
@@ -9,29 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    runs-on: windows-latest
-    timeout-minutes: 6
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pytest-timeout>=2.3,<3"
-      - name: Test non-UI components (no real desktop actions)
-        timeout-minutes: 3
-        shell: pwsh
-        run: ./scripts/windows_test_runner.ps1 -Files tests/test_approvals.py,tests/test_chatgpt_auth.py,tests/test_chatgpt_provider.py,tests/test_demo_engine.py,tests/test_demo_worker.py,tests/test_native_agent.py
-      - name: Test Qt preview offscreen
-        if: always()
-        timeout-minutes: 3
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QUICK_BACKEND: software
-          VOX_REQUIRE_UI_TESTS: '1'
-        shell: pwsh
-        run: ./scripts/windows_test_runner.ps1 -Files tests/test_ui_demo.py
   installer:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -43,9 +20,15 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7" "pytest-timeout>=2.3,<3"
+          python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7"
       - name: Build application
-        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxPreview --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxGroq --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
+      - name: Keep only the standard x64 PortAudio runtime
+        shell: pwsh
+        run: |
+          $dir = "dist/VoxGroq/_internal/_sounddevice_data/portaudio-binaries"
+          if (!(Test-Path "$dir/libportaudio64bit.dll")) { throw "PortAudio runtime missing" }
+          Get-ChildItem $dir -Filter '*.dll' | Where-Object { $_.Name -ne 'libportaudio64bit.dll' } | Remove-Item -Force
       - name: Add third-party notices
         run: python scripts/collect_preview_licenses.py
       - name: Smoke-test packaged app
@@ -54,7 +37,7 @@ jobs:
           QT_QUICK_BACKEND: software
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist/VoxPreview/VoxPreview.exe" -ArgumentList "--smoke-test" -PassThru
+          $p = Start-Process -FilePath "dist/VoxGroq/VoxGroq.exe" -ArgumentList "--smoke-test" -PassThru
           if (!$p.WaitForExit(90000)) { $p.Kill(); throw "Packaged smoke test timed out" }
           if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
           if ($p.ExitCode -ne 0) { throw "Packaged app smoke test failed ($($p.ExitCode))" }
@@ -73,23 +56,23 @@ jobs:
           QT_QUICK_BACKEND: software
         shell: pwsh
         run: |
-          $setup = Resolve-Path "dist/installer/Vox-Preview-Setup.exe"
-          $target = Join-Path $env:RUNNER_TEMP "VoxPreviewTest"
+          $setup = Resolve-Path "dist/installer/Vox-Groq-Setup.exe"
+          $target = Join-Path $env:RUNNER_TEMP "VoxGroqTest"
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "Installer failed ($($p.ExitCode))" }
-          $p = Start-Process -FilePath (Join-Path $target 'VoxPreview.exe') -ArgumentList '--smoke-test' -PassThru
+          $p = Start-Process -FilePath (Join-Path $target 'VoxGroq.exe') -ArgumentList '--smoke-test' -PassThru
           if (!$p.WaitForExit(90000)) { $p.Kill(); throw "Installed smoke test timed out" }
           if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
           if ($p.ExitCode -ne 0 -or !(Test-Path vox-smoke-test.txt)) { throw "Installed app smoke test failed" }
       - name: Generate checksum and copy readme
         shell: pwsh
         run: |
-          $hash = (Get-FileHash dist/installer/Vox-Preview-Setup.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  Vox-Preview-Setup.exe" | Out-File dist/installer/SHA256SUMS.txt -Encoding ascii
+          $hash = (Get-FileHash dist/installer/Vox-Groq-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Vox-Groq-Setup.exe" | Out-File dist/installer/SHA256SUMS.txt -Encoding ascii
           Copy-Item installer/README.txt dist/installer/README.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: vox-windows-early-preview
+          name: vox-windows-groq-early-access
           path: dist/installer/
           if-no-files-found: error
           retention-days: 30

@@ -7,99 +7,140 @@ ApplicationWindow {
     id: appWindow
     objectName: "agentWindow"
     visible: true
-    width: 790; height: 680
+    width: 840; height: 810
     minimumWidth: 700; minimumHeight: 620
-    title: "Vox — early Windows preview"
+    title: "Vox — Groq voice control"
     color: theme.background
     Theme { id: theme }
     NotchWindow { objectName: "notchWindow" }
 
-    ColumnLayout {
+    ScrollView {
         anchors.fill: parent
-        anchors.margins: 38
-        spacing: 0
-        RowLayout {
-            Layout.fillWidth: true
-            Rectangle {
-                width: 35; height: 35; radius: 11; color: "#242136"
-                Text { anchors.centerIn: parent; text: "✦"; color: theme.accent; font.pixelSize: 19 }
-            }
-            Text { text: "VOX"; color: "#d4d8e4"; font.family: theme.fontFamily; font.bold: true; font.pixelSize: 11; font.letterSpacing: 1.6 }
-            Item { Layout.fillWidth: true }
-            Rectangle {
-                width: 148; height: 28; radius: 14
-                color: viewModel.busy ? "#27324b" : "#211e31"; border.color: viewModel.busy ? "#4e6caa" : "#3a3451"
-                Text { anchors.centerIn: parent; text: viewModel.busy ? "●  CLOUD ACTIVE" : "EARLY PREVIEW"; color: viewModel.busy ? "#a9c7ff" : "#c0b5f6"; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.8 }
-            }
-        }
-        Item { Layout.preferredHeight: 44 }
-        Text { text: "A quieter way to work."; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 34; font.weight: Font.DemiBold; font.letterSpacing: -1 }
-        Item { Layout.preferredHeight: 9 }
-        Text { text: "Start with a simple text request to your PC."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 14 }
-        Item { Layout.preferredHeight: 28 }
-        Rectangle {
-            Layout.fillWidth: true; Layout.preferredHeight: 78; radius: 14
-            color: "#1d1a20"; border.color: "#514033"
+        contentWidth: availableWidth
+        clip: true
+        ColumnLayout {
+            width: appWindow.width - 76
+            x: 38
+            spacing: 0
+            Item { Layout.preferredHeight: 34 }
             RowLayout {
-                anchors.fill: parent; anchors.leftMargin: 18; anchors.rightMargin: 18; spacing: 14
-                Rectangle { width: 32; height: 32; radius: 10; color: "#3b2b1b"; Text { anchors.centerIn: parent; text: "!"; color: "#ffb554"; font.pixelSize: 17; font.bold: true } }
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 3
-                    Text { text: "Limited preview — Notepad only"; color: "#f5d6b4"; font.family: theme.fontFamily; font.pixelSize: 12; font.bold: true }
-                    Text { text: "Voice, general PC control and offline mode are not available yet."; color: "#ad9989"; font.family: theme.fontFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Layout.fillWidth: true
+                Rectangle { width: 35; height: 35; radius: 11; color: "#242136"; Text { anchors.centerIn: parent; text: "✦"; color: theme.accent; font.pixelSize: 19 } }
+                Text { text: "VOX"; color: "#d4d8e4"; font.family: theme.fontFamily; font.bold: true; font.pixelSize: 11; font.letterSpacing: 1.6 }
+                Item { Layout.fillWidth: true }
+                Rectangle {
+                    width: 170; height: 28; radius: 14
+                    color: viewModel.recording ? "#462b2a" : (viewModel.busy ? "#27324b" : "#211e31")
+                    border.color: viewModel.recording ? "#a5584e" : (viewModel.busy ? "#4e6caa" : "#3a3451")
+                    Text { anchors.centerIn: parent; text: viewModel.recording ? "●  MICROPHONE ON" : (viewModel.busy ? "●  WORKING ONLINE" : "PUSH TO TALK"); color: viewModel.recording ? "#ffc0b3" : "#c0b5f6"; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.7 }
                 }
             }
-        }
-        Item { Layout.preferredHeight: 26 }
-        RowLayout {
-            Layout.fillWidth: true
-            ColumnLayout {
-                Layout.fillWidth: true; spacing: 3
-                Text { text: "ChatGPT connection"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 15; font.bold: true }
-                Text { text: "Sign in through your browser. Your request is sent online."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11 }
+            Item { Layout.preferredHeight: 30 }
+            Text { text: "Your voice, your PC."; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1 }
+            Item { Layout.preferredHeight: 7 }
+            Text { text: "Speak or type a request. The microphone is off until you start recording."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 13; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 20 }
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 65; radius: 14
+                color: "#1d1a20"; border.color: "#514033"
+                ColumnLayout {
+                    anchors.fill: parent; anchors.leftMargin: 17; anchors.rightMargin: 17; anchors.topMargin: 11; anchors.bottomMargin: 11; spacing: 3
+                    Text { text: "Currently supported: Notepad, Calculator, Paint and HTTPS websites"; color: "#f5d6b4"; font.family: theme.fontFamily; font.pixelSize: 12; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text { text: "Websites require confirmation. Other PC actions are not available yet."; color: "#ad9989"; font.family: theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                }
             }
-            DemoButton { objectName: "loginButton"; text: "Continue with ChatGPT"; enabled: !viewModel.busy; onClicked: viewModel.login() }
-        }
-        Item { Layout.preferredHeight: 26 }
-        Text { text: "Your request"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 15; font.bold: true }
-        Item { Layout.preferredHeight: 10 }
-        TextField {
-            id: requestInput
-            objectName: "requestInput"
-            Layout.fillWidth: true; Layout.preferredHeight: 48
-            enabled: !viewModel.busy
-            placeholderText: "Try: Open Notepad"
-            placeholderTextColor: theme.subtle; color: theme.text
-            font.family: theme.fontFamily; font.pixelSize: 13
-            leftPadding: 14; rightPadding: 14
-            background: Rectangle { color: "#171c25"; radius: 11; border.color: requestInput.activeFocus ? "#a394ff" : theme.line }
-            onAccepted: viewModel.submit(text, dryRun.checked)
-        }
-        Item { Layout.preferredHeight: 12 }
-        RowLayout {
-            Layout.fillWidth: true; spacing: 12
+            Item { Layout.preferredHeight: 20 }
+            Text { text: "Groq API key"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 14; font.bold: true }
+            Item { Layout.preferredHeight: 7 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 9
+                TextField {
+                    id: keyInput
+                    objectName: "keyInput"
+                    Layout.fillWidth: true; Layout.preferredHeight: 42
+                    enabled: !viewModel.busy && !viewModel.approvalPending
+                    echoMode: TextInput.Password; placeholderText: "Paste your Groq API key here"
+                    placeholderTextColor: theme.subtle; color: theme.text; leftPadding: 13; font.pixelSize: 12
+                    background: Rectangle { color: "#171c25"; radius: 10; border.color: keyInput.activeFocus ? theme.accent : theme.line }
+                }
+                DemoButton { objectName: "saveKeyButton"; text: "Save key"; enabled: !viewModel.busy && !viewModel.approvalPending; onClicked: { viewModel.saveKey(keyInput.text); keyInput.clear() } }
+                DemoButton { objectName: "removeKeyButton"; text: "Remove"; enabled: !viewModel.busy && !viewModel.approvalPending; onClicked: viewModel.removeKey() }
+            }
+            Item { Layout.preferredHeight: 7 }
+            Text { text: "Saved encrypted for this Windows account. Audio, transcript and requests are sent to Groq."; color: theme.subtle; font.pixelSize: 10; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 20 }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: "Voice request"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
+                Text { text: "UP TO 15 SECONDS"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.6 }
+            }
+            Item { Layout.preferredHeight: 9 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 9
+                DemoButton { objectName: "recordButton"; text: "●  Start recording"; primary: true; enabled: !viewModel.busy && !viewModel.approvalPending; onClicked: viewModel.record(dryRun.checked, speak.checked) }
+                DemoButton { objectName: "finishButton"; text: "Finish recording"; enabled: viewModel.recording; onClicked: viewModel.finishRecording() }
+                DemoButton { objectName: "stopButton"; text: "Stop"; enabled: viewModel.busy || viewModel.approvalPending; onClicked: viewModel.cancel() }
+                Item { Layout.fillWidth: true }
+                CheckBox {
+                    id: speak
+                    objectName: "speak"
+                    text: "Spoken reply"; checked: true; enabled: !viewModel.busy && !viewModel.approvalPending
+                    contentItem: Text { text: speak.text; color: theme.muted; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; leftPadding: speak.indicator.width + 7 }
+                }
+            }
+            Item { Layout.preferredHeight: 18 }
+            Text { text: "Or type a request"; color: theme.text; font.family: theme.fontFamily; font.pixelSize: 14; font.bold: true }
+            Item { Layout.preferredHeight: 8 }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 9
+                TextField {
+                    id: requestInput
+                    objectName: "requestInput"
+                    Layout.fillWidth: true; Layout.preferredHeight: 44
+                    enabled: !viewModel.busy && !viewModel.approvalPending
+                    placeholderText: "Try: Open Calculator"
+                    placeholderTextColor: theme.subtle; color: theme.text; font.pixelSize: 13; leftPadding: 13
+                    background: Rectangle { color: "#171c25"; radius: 10; border.color: requestInput.activeFocus ? theme.accent : theme.line }
+                    onAccepted: viewModel.submit(text, dryRun.checked, speak.checked)
+                }
+                DemoButton { objectName: "runButton"; text: "Run request"; primary: true; enabled: !viewModel.busy && !viewModel.approvalPending; onClicked: viewModel.submit(requestInput.text, dryRun.checked, speak.checked) }
+            }
             CheckBox {
                 id: dryRun
                 objectName: "dryRun"
-                text: "Dry run (no app opens)"; checked: true; enabled: !viewModel.busy
-                contentItem: Text { text: dryRun.text; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; leftPadding: dryRun.indicator.width + 8 }
+                text: "Dry run (do not perform the action)"; checked: false; enabled: !viewModel.busy && !viewModel.approvalPending
+                contentItem: Text { text: dryRun.text; color: theme.muted; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; leftPadding: dryRun.indicator.width + 7 }
             }
-            Item { Layout.fillWidth: true }
-            DemoButton { objectName: "stopButton"; text: "Stop"; enabled: viewModel.busy; onClicked: viewModel.cancel() }
-            DemoButton { objectName: "runButton"; text: "Run request"; primary: true; enabled: !viewModel.busy; onClicked: viewModel.submit(requestInput.text, dryRun.checked) }
-        }
-        Item { Layout.preferredHeight: 22 }
-        Rectangle {
-            Layout.fillWidth: true; Layout.preferredHeight: 70; radius: 12; color: theme.surface; border.color: theme.line
-            ColumnLayout {
-                anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; anchors.topMargin: 11; anchors.bottomMargin: 11
-                Text { text: "STATUS"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 1 }
-                Text { text: viewModel.status; color: "#c2cad7"; font.family: theme.fontFamily; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
+            Rectangle {
+                visible: viewModel.approvalPending
+                Layout.fillWidth: true; Layout.preferredHeight: approvalLayout.implicitHeight + 24
+                radius: 12; color: "#252018"; border.color: "#a07135"
+                ColumnLayout {
+                    id: approvalLayout
+                    anchors.fill: parent; anchors.margins: 12; spacing: 8
+                    Text { text: "CONFIRM WEBSITE · EXPIRES IN 15 SECONDS"; color: "#ffc778"; font.bold: true; font.pixelSize: 10; Layout.fillWidth: true }
+                    Text { text: viewModel.approvalText; color: theme.text; font.pixelSize: 12; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
+                    RowLayout {
+                        Item { Layout.fillWidth: true }
+                        DemoButton { objectName: "declineButton"; text: "Decline"; onClicked: viewModel.deny() }
+                        DemoButton { objectName: "approveButton"; text: "Open website"; primary: true; onClicked: viewModel.approve() }
+                    }
+                }
             }
+            Item { Layout.preferredHeight: 12 }
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: statusLayout.implicitHeight + 26; radius: 12; color: theme.surface; border.color: theme.line
+                ColumnLayout {
+                    id: statusLayout
+                    anchors.fill: parent; anchors.margins: 13; spacing: 6
+                    Text { text: "STATUS"; color: theme.subtle; font.bold: true; font.pixelSize: 9; font.letterSpacing: 1 }
+                    Text { objectName: "statusText"; text: viewModel.status; color: "#c2cad7"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text { visible: viewModel.transcript.length > 0; text: "Heard: " + viewModel.transcript; color: theme.muted; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                }
+            }
+            Item { Layout.preferredHeight: 20 }
+            Text { text: "ONLINE GROQ VOICE  ·  NO CONTINUOUS LISTENING  ·  NO SCREEN CAPTURE"; color: theme.subtle; font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.6; Layout.fillWidth: true; wrapMode: Text.Wrap }
+            Item { Layout.preferredHeight: 28 }
         }
-        Item { Layout.fillHeight: true }
-        Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
-        Item { Layout.preferredHeight: 16 }
-        Text { text: "NO AUDIO OR SCREEN CAPTURE  ·  ONLINE TEXT ONLY"; color: theme.subtle; font.pixelSize: 9; font.bold: true; font.letterSpacing: 0.8 }
     }
 }

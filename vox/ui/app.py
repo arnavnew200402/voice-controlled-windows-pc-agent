@@ -14,7 +14,7 @@ from shiboken6 import delete
 from vox.ui.model import NotchDemoModel
 
 if TYPE_CHECKING:
-    from vox.ui.live_model import LiveViewModel
+    from vox.ui.groq_model import GroqViewModel
 
 
 def create_preview(app: QGuiApplication) -> tuple[QQmlApplicationEngine, NotchDemoModel]:
@@ -65,10 +65,10 @@ def run_demo() -> int:
         del model
 
 
-def create_live(app: QGuiApplication) -> tuple[QQmlApplicationEngine, LiveViewModel]:
-    from vox.ui.live_model import LiveViewModel
+def create_live(app: QGuiApplication) -> tuple[QQmlApplicationEngine, GroqViewModel]:
+    from vox.ui.groq_model import GroqViewModel
 
-    model = LiveViewModel()
+    model = GroqViewModel()
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("viewModel", model)
     engine.load(str(Path(__file__).parent / "qml" / "AgentWindow.qml"))
