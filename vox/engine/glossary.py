@@ -63,14 +63,27 @@ BUILTIN_ENTRIES: tuple[GlossaryEntry, ...] = (
 )
 
 
-def _phonetic(word: str) -> str:
-    """Crude sound key: first letter, drop later vowels/h/w, squash doubles."""
-    cleaned = [c for c in word.lower() if c.isalpha()]
+_FIRST_FOLD = {"c": "k", "q": "k", "z": "s", "j": "g"}
+
+
+def phonetic_key(word: str) -> str:
+    """Crude sound key: folded first letter, drop later vowels/h/w, squash.
+
+    Folds c/k/q and ph->f so "krom"/"chrome" and "foto"/"photo" collide —
+    enough for ASR-slip candidate ranking, nothing more is claimed.
+    """
+    lowered = word.lower().replace("ph", "f")
+    cleaned = [c for c in lowered if c.isalpha()]
     if not cleaned:
         return ""
-    head, tail = cleaned[0], [c for c in cleaned[1:] if c not in "aeiouhw"]
+    head = _FIRST_FOLD.get(cleaned[0], cleaned[0])
+    tail = [_FIRST_FOLD.get(c, c) for c in cleaned[1:] if c not in "aeiouhw"]
     squashed = "".join(c for i, c in enumerate(tail) if i == 0 or c != tail[i - 1])
     return head + squashed
+
+
+def _phonetic(word: str) -> str:
+    return phonetic_key(word)
 
 
 class Glossary:
