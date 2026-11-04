@@ -164,6 +164,16 @@ def test_sse_requires_completed_event_and_fixed_https_host(monkeypatch):
         event({"type": "response.completed", "response": {"status": "incomplete"}}),
         b"data: " + b"x" * 65537 + b"\n\n",
     ],
+    # Short IDs are required on Windows: pytest puts the node ID in the
+    # PYTEST_CURRENT_TEST environment variable, which is capped at 32767
+    # characters there, so the 65537-byte value must not appear in the ID.
+    ids=[
+        "done-without-completed",
+        "no-completed-event",
+        "failed-event",
+        "incomplete-status",
+        "oversized-line",
+    ],
 )
 def test_incomplete_failed_and_oversized_sse_fails_closed(monkeypatch, payload):
     install_connection(monkeypatch, payload)

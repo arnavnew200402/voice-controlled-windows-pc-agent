@@ -213,7 +213,12 @@ def test_cli_with_recorded_local_server_and_dry_run():
 
 
 @pytest.mark.parametrize(
-    "status,content", [(302, b"{}"), (200, b"[1]"), (200, b"invalid"), (200, b"x" * 1_048_577)]
+    "status,content",
+    [(302, b"{}"), (200, b"[1]"), (200, b"invalid"), (200, b"x" * 1_048_577)],
+    # Short IDs are required on Windows: pytest puts the node ID in the
+    # PYTEST_CURRENT_TEST environment variable, which is capped at 32767
+    # characters there, so the oversized value must not appear in the ID.
+    ids=["redirect", "not-an-object", "invalid-json", "oversized-body"],
 )
 def test_transport_rejects_redirects_and_invalid_or_oversized_responses(
     monkeypatch, status, content
