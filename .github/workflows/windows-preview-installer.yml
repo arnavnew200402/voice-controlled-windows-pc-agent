@@ -20,13 +20,35 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7"
-      - name: Test (no real desktop actions)
+          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7" "pytest-timeout>=2.3,<3"
+      - name: Test non-UI components (no real desktop actions)
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          python -m pytest tests/test_approvals.py tests/test_chatgpt_auth.py tests/test_chatgpt_provider.py tests/test_demo_engine.py tests/test_demo_worker.py tests/test_native_agent.py -m "not desktop" -vv --timeout=30 --timeout-method=thread *> test-log.txt
+          $code = $LASTEXITCODE
+          Get-Content test-log.txt
+          if ($code -ne 0) {
+            $last = Get-Content test-log.txt | Where-Object { $_ -match '^tests[/\\].*::test_' } | Select-Object -Last 1
+            Write-Output "::error::Non-UI tests failed or timed out. Last test: $last"
+            exit $code
+          }
+      - name: Test Qt preview offscreen
+        timeout-minutes: 3
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
           VOX_REQUIRE_UI_TESTS: '1'
-        run: python -m pytest -m "not desktop" -q
+        shell: pwsh
+        run: |
+          python -m pytest tests/test_ui_demo.py -vv --timeout=30 --timeout-method=thread *> test-log.txt
+          $code = $LASTEXITCODE
+          Get-Content test-log.txt
+          if ($code -ne 0) {
+            $last = Get-Content test-log.txt | Where-Object { $_ -match '^tests[/\\].*::test_' } | Select-Object -Last 1
+            Write-Output "::error::Qt tests failed or timed out. Last test: $last"
+            exit $code
+          }
       - name: Build application
         run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxPreview --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
       - name: Add third-party notices
