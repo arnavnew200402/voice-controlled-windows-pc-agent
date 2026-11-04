@@ -12,3 +12,5 @@
 8. GitHub Actions stores artifact ZIPs on a host outside this sandbox's allowlist, so the successful preview ZIP could not be downloaded into the workspace. It is available through the GitHub Actions UI to an authorized user until 2026-12-04.
 
 9. Groq endpoints, microphone hardware, Windows DPAPI, speaker playback and interactive desktop are unavailable in this sandbox. Real Groq voice and Windows actions require an authorized key and a disposable Windows test system; do not ask the user to send the key in chat.
+
+10. The Groq installer workflow run 41861807832 remained queued for more than 10 minutes. The new matrix's Groq fake-test step completed successfully, but GitHub still reported its finished job as in progress; the matrix was force-cancelled to free capacity. No Groq installer artifact is currently available. Check the run before asserting a build result.

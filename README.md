@@ -19,7 +19,7 @@ The microphone is not continuously listening; recorded audio is held in memory a
 
 **Live Groq calls, microphone capture/playback, Windows DPAPI and actual Windows actions have not yet been tested end-to-end.** Cancellation is cooperative and cannot undo an action already started or immediately interrupt all network calls/audio playback. There is no wake word, acoustic loopback verification, general automation, production audit/policy, isolated worker, offline mode or clean-VM validation. Only use a trusted disposable test PC until those gaps are closed.
 
-A Windows installer workflow is defined in `.github/workflows/windows-preview-installer.yml`; check `docs/STATE.md` for its current result. Installers are unsigned. The older ChatGPT/Notepad preview artifact is not the Groq build.
+The [Windows Groq installer run](https://github.com/arnavnew200402/voice-controlled-windows-pc-agent/actions/runs/41861807832) is queued; no Groq installer artifact is available yet. Check `docs/STATE.md` for its current result. Installers are unsigned. The older ChatGPT/Notepad preview artifact is not the Groq build.
 
 ## Other project paths
 
