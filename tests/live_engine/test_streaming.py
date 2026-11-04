@@ -40,7 +40,9 @@ def run(lines):
 
 
 def test_text_deltas_and_done():
-    events = run([sse(delta(content="Calcu")), sse(delta(content="lator opened.")), b"data: [DONE]\n"])
+    events = run(
+        [sse(delta(content="Calcu")), sse(delta(content="lator opened.")), b"data: [DONE]\n"]
+    )
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["Calcu", "lator opened."]
     assert isinstance(events[-1], StreamDone)
 
@@ -114,7 +116,11 @@ def test_malformed_lines_skipped_and_empty_stream_fails():
 
 def test_request_is_streaming_with_messages():
     transport = FakeStreamTransport([sse(delta(content="x")), b"data: [DONE]\n"])
-    list(GroqClient(transport).chat_stream([{"role": "system", "content": "s"}], [{"type": "function"}]))
+    list(
+        GroqClient(transport).chat_stream(
+            [{"role": "system", "content": "s"}], [{"type": "function"}]
+        )
+    )
     body = transport.requests[0]
     assert body["stream"] is True and body["messages"][0]["content"] == "s"
     assert body["tools"] == [{"type": "function"}]
