@@ -21,6 +21,7 @@ jobs:
           - tests/live_engine/test_timeline.py
           - tests/live_engine/test_endpointing_control.py
           - tests/live_engine/test_turn_manager_replay.py
+          - tests/live_engine/test_wake.py
           - tests/test_ui_demo.py
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +65,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3"
-      - run: python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py
-      - run: python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py
+      - run: python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py
+      - run: python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py
       - run: python -m mypy

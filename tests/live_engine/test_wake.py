@@ -206,6 +206,22 @@ def test_edge36_stage2_reject_reverts_silently_within_window():
     assert len(events_of(timeline, WakeDetected)) == 1
 
 
+def test_listening_session_does_not_retrigger_on_command_frames():
+    session, _clock, timeline, *_rest = make_session(
+        [
+            snippet("hi vox", final=True, conf=0.99),
+            snippet("hi vox", final=True, conf=0.99),  # would re-verify if fed
+        ]
+    )
+    session.feed(LOUD)
+    first_turn = session.turn
+    session.feed(LOUD)  # command-phase frame: spotter must not be fed
+    assert session.turn is first_turn
+    assert len(events_of(timeline, WakeVerified)) == 1
+    session.complete_turn()
+    assert session.state is WakeSessionState.IDLE
+
+
 def test_gate_skips_quiet_frames_and_calibrate_offset():
     session, _clock, _timeline, _manager, engine, spotter = make_session([])
     for _ in range(10):

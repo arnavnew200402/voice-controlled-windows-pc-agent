@@ -78,6 +78,8 @@ class TwoStageWake:
         if snippet is None or not contains_wake_phrase(snippet.text, **self._sets):  # type: ignore[arg-type]
             return steps
         if not snippet.final:
+            if self._pending_since is not None:
+                self._pending_since = now  # phrase still on the partials: stay pending
             if self._pending_since is None:
                 self._pending_since = now
                 self._pending_phrase = snippet.text
@@ -183,6 +185,14 @@ class WakeSession:
     def note_speech_started(self) -> None:
         self._speech_started = True
 
+    def complete_turn(self) -> None:
+        """Pipeline finished the wake-opened turn: return to wake idle."""
+        self.turn = None
+        self._listening_since = None
+        self._speech_started = False
+        self._state = WakeSessionState.IDLE
+        self.command_audio = b""
+
     def feed(self, frame: bytes) -> None:
         if not self._settings.enabled or self._suspended:
             return
@@ -190,7 +200,12 @@ class WakeSession:
         if self._speaking:
             return  # half-duplex: deaf during own speech
         now = self._clock.monotonic()
-        for step in self._spotter.feed(frame, frame_rms(frame)):
+        steps = (
+            []
+            if self._state is WakeSessionState.LISTENING
+            else self._spotter.feed(frame, frame_rms(frame))
+        )
+        for step in steps:
             if step.kind == "detected":
                 self._state = WakeSessionState.SOFT_LISTENING
                 self._timeline.append_event(
