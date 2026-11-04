@@ -41,6 +41,12 @@ class DeviceIndex:
         self._glossary = glossary if glossary is not None else Glossary()
         self._chunks: dict[str, Chunk] = {}
         self._tokens: dict[str, Counter[str]] = {}
+        self._postings: dict[str, set[str]] = {}
+        self._phonetic_postings: dict[str, set[str]] = {}
+        self._doc_freq: Counter[str] = Counter()
+        self._total_tokens = 0
+        self._title_tokens: dict[str, list[str]] = {}
+        self._phonetic_keys: dict[str, set[str]] = {}
         self._sequence = 0
 
     # -- population -----------------------------------------------------------
@@ -51,7 +57,15 @@ class DeviceIndex:
             id=f"{source}-{self._sequence}", source=source, title=title, text=text, data=data
         )
         self._chunks[chunk.id] = chunk
-        self._tokens[chunk.id] = Counter(words(f"{title} {text}"))
+        counts = Counter(words(f"{title} {text}"))
+        self._tokens[chunk.id] = counts
+        self._title_tokens[chunk.id] = words(title)
+        self._phonetic_keys[chunk.id] = {phonetic_key(token) for token in counts}
+        self._total_tokens += sum(counts.values())
+        for token in counts:
+            self._postings.setdefault(token, set()).add(chunk.id)
+            self._phonetic_postings.setdefault(phonetic_key(token), set()).add(chunk.id)
+            self._doc_freq[token] += 1
         return chunk
 
     def index_apps(self, names: list[str]) -> None:
@@ -77,8 +91,15 @@ class DeviceIndex:
 
     def remove_source(self, source: ChunkSource) -> None:
         for chunk_id in [cid for cid, c in self._chunks.items() if c.source == source]:
+            counts = self._tokens.pop(chunk_id)
+            self._title_tokens.pop(chunk_id)
+            self._phonetic_keys.pop(chunk_id)
+            self._total_tokens -= sum(counts.values())
+            for token in counts:
+                self._postings[token].discard(chunk_id)
+                self._phonetic_postings[phonetic_key(token)].discard(chunk_id)
+                self._doc_freq[token] -= 1
             del self._chunks[chunk_id]
-            del self._tokens[chunk_id]
 
     def __len__(self) -> int:
         return len(self._chunks)
@@ -91,15 +112,25 @@ class DeviceIndex:
         query_tokens = words(query)
         if not query_tokens or not self._chunks:
             return []
-        candidates = [c for c in self._chunks.values() if source is None or c.source == source]
+        # Inverted index: only chunks sharing a token (or a phonetic key)
+        # with the query are ever scored — O(postings), not O(index).
+        candidate_ids: set[str] = set()
+        for token in query_tokens:
+            candidate_ids |= self._postings.get(token, set())
+            candidate_ids |= self._phonetic_postings.get(phonetic_key(token), set())
+        candidates = [
+            self._chunks[chunk_id]
+            for chunk_id in candidate_ids
+            if source is None or self._chunks[chunk_id].source == source
+        ]
         if not candidates:
             return []
-        doc_freq: Counter[str] = Counter()
-        for chunk in candidates:
-            doc_freq.update(self._tokens[chunk.id].keys())
-        avg_len = sum(sum(self._tokens[c.id].values()) for c in candidates) / len(candidates)
-        total = len(candidates)
-        query_keys = {phonetic_key(token) for token in query_tokens}
+        total = len(self._chunks)
+        avg_len = self._total_tokens / total
+        query_literal_keys = {
+            phonetic_key(token) for token in query_tokens if self._postings.get(token)
+        }
+        query_all_keys = {phonetic_key(token) for token in query_tokens}
         scored: list[ScoredChunk] = []
         for chunk in candidates:
             counts = self._tokens[chunk.id]
@@ -108,17 +139,15 @@ class DeviceIndex:
             for token in query_tokens:
                 tf = counts.get(token, 0)
                 if tf:
-                    idf = math.log(1 + (total - doc_freq[token] + 0.5) / (doc_freq[token] + 0.5))
+                    df = self._doc_freq[token]
+                    idf = math.log(1 + (total - df + 0.5) / (df + 0.5))
                     score += (
                         idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * length / max(1.0, avg_len)))
                     )
-            title_tokens = words(chunk.title)
-            if title_tokens == query_tokens:
+            if self._title_tokens[chunk.id] == query_tokens:
                 score += 3.0  # exact title match dominates
-            if query_keys & {phonetic_key(token) for token in counts} - {
-                phonetic_key(token) for token in query_tokens if counts.get(token)
-            }:
-                score += 0.75  # sound-alike but not literal token present
+            elif self._phonetic_keys[chunk.id] & query_all_keys - query_literal_keys:
+                score += 0.75  # sound-alike but not a literal token present
             if score > 0:
                 scored.append(ScoredChunk(chunk=chunk, score=round(score, 4)))
         scored.sort(key=lambda item: (-item.score, item.chunk.id))

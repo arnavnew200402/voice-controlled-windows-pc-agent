@@ -28,3 +28,12 @@ after glossary repair. This validates the repair table against its own
 failure catalogue — it is *not* field WER. Field WER ±hotwords (EN/HI/
 Hinglish) needs recorded speech through real STT: not measured (no key/
 mic in sandbox), scheduled with the voice harness.
+
+## LE3 — retrieval (2026-11-05, `scripts/memory_bench.py`)
+
+BM25 + phonetic over an inverted index (sandbox timings, adversarial
+synthetic corpus where most chunks share query tokens): p95 **0.96 ms**
+@254 chunks, **3.1 ms** @1,254, **21.6 ms** @6,254 — inside the ≤100 ms
+retrieval budget with headroom. Session checkpoint (500 events + 100
+actions) ≈62 ms, restore ≈2.6 ms. Vector retrieval not implemented
+(no licence-verified local embedding model in this environment).

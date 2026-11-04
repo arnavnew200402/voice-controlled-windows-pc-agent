@@ -24,6 +24,8 @@ jobs:
           - tests/live_engine/test_wake.py
           - tests/live_engine/test_entities_glossary.py
           - tests/live_engine/test_contextualiser.py
+          - tests/live_engine/test_memory.py
+          - tests/live_engine/test_retrieval.py
           - tests/test_ui_demo.py
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +69,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3"
-      - run: python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py
-      - run: python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py
+      - run: python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py scripts/memory_bench.py
+      - run: python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py scripts/memory_bench.py
       - run: python -m mypy
