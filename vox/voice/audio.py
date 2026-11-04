@@ -12,6 +12,8 @@ import struct
 import time
 import wave
 from collections.abc import Callable, Iterator
+from contextlib import suppress
+from typing import Any
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 4000  # 0.25 s of mono audio per frame
@@ -133,15 +135,97 @@ def record_until_silence(
     return _wav_bytes(chunks)
 
 
-def play_wav(data: bytes) -> None:
-    try:
-        import winsound
+def _wav_duration_seconds(data: bytes) -> float:
+    with wave.open(io.BytesIO(data), "rb") as audio:
+        rate = audio.getframerate()
+        if not rate:
+            raise AudioError("Voice reply was invalid.")
+        duration = audio.getnframes() / rate
+    if duration > 30:
+        raise AudioError("Voice reply was invalid.")
+    return duration
 
-        with wave.open(io.BytesIO(data), "rb") as audio:
-            if not audio.getframerate() or audio.getnframes() / audio.getframerate() > 30:
-                raise AudioError("Voice reply was invalid.")
-        winsound.PlaySound(data, winsound.SND_MEMORY)  # type: ignore[attr-defined, unused-ignore]
-    except AudioError:
-        raise
-    except Exception as exc:
-        raise AudioError("Voice reply could not be played.") from exc
+
+class WinsoundPlayer:
+    """Cancellable WAV playback (LE1) with a spoken-text estimate.
+
+    ``play`` starts async ``winsound`` playback; ``stop`` silences it
+    immediately and returns the portion of ``text`` estimated spoken from
+    elapsed time (word-boundary trimmed). ``wait`` blocks until the sound
+    ends or ``cancelled`` fires, polling every 20 ms so cancellation lands
+    well inside the 150 ms budget. Non-Windows platforms raise
+    ``AudioError`` exactly like the legacy blocking helper.
+    """
+
+    def __init__(self) -> None:
+        self._started: float | None = None
+        self._duration = 0.0
+        self._text = ""
+        self._data = b""  # SND_MEMORY|SND_ASYNC requires a live buffer
+        self._winsound: Any = None
+
+    @property
+    def playing(self) -> bool:
+        return self._started is not None
+
+    def play(self, data: bytes, text: str = "") -> None:
+        try:
+            import winsound
+
+            duration = _wav_duration_seconds(data)
+            winsound.PlaySound(  # type: ignore[attr-defined, unused-ignore]
+                data,
+                winsound.SND_MEMORY | winsound.SND_ASYNC,  # type: ignore[attr-defined, unused-ignore]
+            )
+        except AudioError:
+            raise
+        except Exception as exc:
+            raise AudioError("Voice reply could not be played.") from exc
+        self._winsound = winsound
+        self._data = data
+        self._text = text
+        self._duration = duration
+        self._started = time.monotonic()
+
+    def stop(self) -> str:
+        if not self.playing:
+            return ""
+        spoken = self._spoken_estimate()
+        with suppress(Exception):  # already silent is fine during shutdown
+            self._winsound.PlaySound(None, self._winsound.SND_PURGE)  # type: ignore[attr-defined, unused-ignore]
+        self._reset()
+        return spoken
+
+    def wait(self, cancelled: Callable[[], bool] | None = None) -> str:
+        if not self.playing or self._started is None:
+            return ""
+        while time.monotonic() - self._started < self._duration:
+            if cancelled is not None and cancelled():
+                return self.stop()
+            time.sleep(0.02)
+        spoken = self._text
+        self._reset()
+        return spoken
+
+    def _spoken_estimate(self) -> str:
+        if self._started is None or self._duration <= 0 or not self._text:
+            return "" if self._started is None else self._text
+        ratio = min(1.0, max(0.0, (time.monotonic() - self._started) / self._duration))
+        cut = int(len(self._text) * ratio)
+        spoken = self._text[:cut]
+        if 0 < cut < len(self._text) and " " in spoken:
+            spoken = spoken.rsplit(" ", 1)[0]
+        return spoken
+
+    def _reset(self) -> None:
+        self._started = None
+        self._data = b""
+        self._text = ""
+        self._duration = 0.0
+
+
+def play_wav(data: bytes) -> None:
+    """Legacy blocking playback (unchanged semantics for the legacy path)."""
+    player = WinsoundPlayer()
+    player.play(data)
+    player.wait()

@@ -11,7 +11,7 @@ from vox.agent.groq_tools import GroqRegistry, PlannedAction, WindowsDesktopBack
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
 from vox.approvals import Tier
-from vox.voice.audio import play_wav, record_wav
+from vox.voice.audio import WinsoundPlayer, record_wav
 
 
 @dataclass(frozen=True)
@@ -100,4 +100,8 @@ class GroqVoiceService:
         if not cancelled():
             audio = self._client().speech(text[:200])
             if not cancelled():
-                play_wav(audio)
+                # Cancellable playback: Stop silences speech within ~20 ms
+                # instead of waiting for the whole utterance (LE1).
+                player = WinsoundPlayer()
+                player.play(audio, text[:200])
+                player.wait(cancelled)

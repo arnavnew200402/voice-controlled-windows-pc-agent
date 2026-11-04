@@ -400,3 +400,49 @@ def test_vosk_engine_without_vosk_installed_fails_closed(monkeypatch):
     monkeypatch.setattr(wake.importlib, "import_module", missing)
     with pytest.raises(WakeError, match="not installed"):
         wake.VoskWakeEngine(model_path=Path("fake-model"))
+
+
+def test_winsound_player_stop_reports_spoken_prefix(monkeypatch):
+    import io
+    import sys
+    import types
+    import wave as wave_module
+
+    calls = []
+    fake_winsound = types.SimpleNamespace(
+        SND_MEMORY=4,
+        SND_ASYNC=1,
+        SND_PURGE=64,
+        PlaySound=lambda data, flags: calls.append((data is None, flags)),
+    )
+    monkeypatch.setitem(sys.modules, "winsound", fake_winsound)
+    buffer = io.BytesIO()
+    with wave_module.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x00" * 32000)  # 2 seconds of silence
+
+    player = audio.WinsoundPlayer()
+    player.play(buffer.getvalue(), "Calculator opened just now successfully")
+    assert player.playing
+    player._started -= 1.0  # pretend half the clip has played
+    spoken = player.stop()
+    assert calls[-1][0] is True  # PlaySound(None, SND_PURGE) silenced it
+    assert spoken.startswith("Calculator opened")
+    assert len(spoken) < len("Calculator opened just now successfully")
+    assert not player.playing
+    assert player.wait() == ""
+
+
+def test_winsound_player_rejects_invalid_wav(monkeypatch):
+    import sys
+    import types
+
+    monkeypatch.setitem(
+        sys.modules,
+        "winsound",
+        types.SimpleNamespace(SND_MEMORY=4, SND_ASYNC=1, SND_PURGE=64, PlaySound=lambda d, f: None),
+    )
+    with pytest.raises(audio.AudioError):
+        audio.WinsoundPlayer().play(b"not a wav")

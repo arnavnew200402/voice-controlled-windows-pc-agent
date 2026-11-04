@@ -22,7 +22,7 @@ CONTROL_PHRASES: dict[str, dict[str, tuple[str, ...]]] = {
         "pause": ("pause", "pause that", "wait", "hold on"),
         "resume": ("resume", "continue", "go on", "carry on"),
         "status": ("status", "what are you doing", "whats happening"),
-        "mute": ("mute", "stop listening", "mute the mic", "microphone off"),
+        "mute": ("stop listening", "mute the mic", "microphone off"),
         "approve": (
             "yes",
             "yeah",

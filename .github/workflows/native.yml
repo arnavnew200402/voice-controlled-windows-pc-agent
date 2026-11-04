@@ -18,6 +18,9 @@ jobs:
           - tests/test_native_agent.py
           - tests/test_groq_voice.py
           - tests/test_handsfree.py
+          - tests/live_engine/test_timeline.py
+          - tests/live_engine/test_endpointing_control.py
+          - tests/live_engine/test_turn_manager_replay.py
           - tests/test_ui_demo.py
     steps:
       - uses: actions/checkout@v4
