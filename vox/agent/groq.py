@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import secrets
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from vox.agent.provider import ProviderError
@@ -14,6 +16,14 @@ STT_MODEL = "whisper-large-v3-turbo"
 TTS_MODEL = "canopylabs/orpheus-v1-english"
 MAX_JSON = 1_048_576
 MAX_AUDIO = 8_000_000
+
+
+@dataclass(frozen=True)
+class Transcript:
+    text: str
+    confidence: float | None = None
+    no_speech_prob: float | None = None
+    language: str | None = None
 
 
 class GroqTransport(Protocol):
@@ -118,19 +128,29 @@ class GroqClient:
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise ProviderError("Groq returned an incomplete response.") from exc
 
-    def transcribe(self, wav: bytes) -> str:
+    def _transcribe_request(
+        self, wav: bytes, response_format: str, prompt: str | None
+    ) -> dict[str, Any]:
         if not 44 < len(wav) <= 2_000_000:
             raise ProviderError("Recorded audio is empty or too long.")
         boundary = "vox-" + secrets.token_hex(16)
         parts = [
             f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n{STT_MODEL}\r\n'.encode(),
-            f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'.encode(),
-            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode()
-            + wav
-            + b"\r\n",
-            f"--{boundary}--\r\n".encode(),
+            f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\n{response_format}\r\n'.encode(),
         ]
-        result = _json(
+        if prompt:
+            parts.append(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n{prompt[:800]}\r\n'.encode()
+            )
+        parts.extend(
+            [
+                f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode()
+                + wav
+                + b"\r\n",
+                f"--{boundary}--\r\n".encode(),
+            ]
+        )
+        return _json(
             self._transport.post(
                 "/openai/v1/audio/transcriptions",
                 b"".join(parts),
@@ -138,10 +158,50 @@ class GroqClient:
                 MAX_JSON,
             )
         )
+
+    @staticmethod
+    def _transcript_text(result: dict[str, Any]) -> str:
         text = result.get("text")
         if not isinstance(text, str) or not text.strip() or len(text) > 4000:
             raise ProviderError("No usable speech was recognized.")
         return text.strip()
+
+    def transcribe(self, wav: bytes) -> str:
+        return self._transcript_text(self._transcribe_request(wav, "json", None))
+
+    def transcribe_detailed(self, wav: bytes, prompt: str | None = None) -> Transcript:
+        """Verbose transcription with a composite confidence (LE2).
+
+        ``confidence`` is exp(mean segment avg_logprob) in (0, 1]; segments
+        or fields the provider omits stay None — never invented.
+        """
+        result = self._transcribe_request(wav, "verbose_json", prompt)
+        text = self._transcript_text(result)
+        segments = result.get("segments")
+        confidence: float | None = None
+        no_speech: float | None = None
+        if isinstance(segments, list) and segments:
+            logprobs = [
+                float(s["avg_logprob"])
+                for s in segments
+                if isinstance(s, dict) and isinstance(s.get("avg_logprob"), (int, float))
+            ]
+            if logprobs:
+                confidence = min(1.0, math.exp(sum(logprobs) / len(logprobs)))
+            probs = [
+                float(s["no_speech_prob"])
+                for s in segments
+                if isinstance(s, dict) and isinstance(s.get("no_speech_prob"), (int, float))
+            ]
+            if probs:
+                no_speech = sum(probs) / len(probs)
+        language = result.get("language")
+        return Transcript(
+            text=text,
+            confidence=confidence,
+            no_speech_prob=no_speech,
+            language=language if isinstance(language, str) else None,
+        )
 
     def speech(self, text: str) -> bytes:
         if not text or len(text) > 200:

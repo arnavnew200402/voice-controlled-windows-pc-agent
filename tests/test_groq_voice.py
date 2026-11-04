@@ -611,3 +611,36 @@ def test_recording_is_bounded_and_memory_only(monkeypatch):
         assert f.getframerate() == 16000 and f.getnframes() == 1600
     with pytest.raises(AudioError):
         record_wav(lambda: False, lambda: True)
+
+
+def test_transcribe_detailed_sends_prompt_and_parses_confidence():
+    payload = json.dumps(
+        {
+            "text": "Open Notepad",
+            "language": "english",
+            "segments": [
+                {"avg_logprob": -0.2, "no_speech_prob": 0.01},
+                {"avg_logprob": -0.4, "no_speech_prob": 0.03},
+            ],
+        }
+    ).encode()
+    transport = Transport(payload)
+    client = GroqClient(transport)
+    result = client.transcribe_detailed(b"RIFF" + b"x" * 50, prompt="Hi Vox, Notepad")
+    assert result.text == "Open Notepad"
+    assert result.language == "english"
+    assert result.confidence is not None and 0.7 < result.confidence < 0.8
+    assert result.no_speech_prob == pytest.approx(0.02)
+    body = transport.calls[-1][1]
+    assert b"verbose_json" in body and b"Hi Vox, Notepad" in body
+    # Legacy format is untouched when no prompt is requested.
+    transport.data = b'{"text":"Open Notepad"}'
+    assert client.transcribe(b"RIFF" + b"x" * 50) == "Open Notepad"
+    assert b"verbose_json" not in transport.calls[-1][1]
+
+
+def test_transcribe_detailed_without_segments_reports_unknown_confidence():
+    transport = Transport(b'{"text":"hello"}')
+    result = GroqClient(transport).transcribe_detailed(b"RIFF" + b"x" * 50)
+    assert result.text == "hello"
+    assert result.confidence is None and result.no_speech_prob is None
