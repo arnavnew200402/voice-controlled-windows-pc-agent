@@ -47,7 +47,7 @@
 - [ ] M8-01 PyInstaller/Nuitka + Inno Setup (online + offline), signing, `vox doctor`, soak tests, `LICENSES.md` review of wake-word/TTS voice licences. Online-only *preview* installer and installed-app offscreen smoke succeeded in Windows CI; full Windows test suite stalled and full acceptance remains open.
 
 - [x] M8-01a Build unsigned per-user online-only early preview installer and verify packaged and installed Qt rendering offscreen in Windows Actions.
-- [ ] M8-02 Diagnose stalled Windows non-UI CI checks and verify Qt tests and complete suite on Windows; do not treat installer smoke as a complete test pass.
+- [x] M8-02 Diagnose stalled Windows non-UI CI checks and verify Qt tests and complete suite on Windows. Done 2026-11-04: root causes were platform-specific mypy unused-ignore reports and oversized pytest parametrize IDs exceeding the Windows 32,767-char environment-variable limit; run 41881288166 is fully green on `windows-latest` (lint + all 8 test files). Fakes/offscreen Qt only — not live validation, and not an installer smoke substitute.
 
 ## Groq voice vertical slice
 - [x] M2-03 User-supplied Groq API key in Windows DPAPI, bounded push-to-talk microphone capture, Groq Whisper transcription, Groq tool calling and optional Orpheus speech; fake contracts and Qt wiring tests.
