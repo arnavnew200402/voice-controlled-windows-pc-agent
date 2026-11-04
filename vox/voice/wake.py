@@ -19,6 +19,7 @@ import itertools
 import json
 import os
 import sys
+import unicodedata
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -87,7 +88,12 @@ class ScoredWakeEngine(Protocol):
 
 
 def _tokens(text: str) -> list[str]:
-    return "".join(char.lower() if char.isalnum() else " " for char in text).split()
+    # Keep Unicode combining marks (Devanagari matras) attached to their base
+    # letters; isalnum() alone would split e.g. "वॉक्स" into fragments.
+    return "".join(
+        char.lower() if char.isalnum() or unicodedata.category(char).startswith("M") else " "
+        for char in text
+    ).split()
 
 
 def contains_wake_phrase(

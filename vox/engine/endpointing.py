@@ -10,6 +10,7 @@ processing; resumed speech after a soft end discards the speculation.
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections import deque
 from enum import StrEnum
 
@@ -51,7 +52,10 @@ DANGLING_TOKENS = {
 
 
 def tokens(text: str) -> list[str]:
-    return "".join(char.lower() if char.isalnum() else " " for char in text).split()
+    return "".join(
+        char.lower() if char.isalnum() or unicodedata.category(char).startswith("M") else " "
+        for char in text
+    ).split()
 
 
 def is_dangling(text: str) -> bool:
