@@ -34,11 +34,21 @@ jobs:
           $ErrorActionPreference = 'continue'
           python -m pytest ${{ matrix.test }} -m "not desktop" -v --timeout=25 --timeout-method=thread 2>&1 | Tee-Object -FilePath pytest-output.txt
           $code = $LASTEXITCODE
+          Write-Host "::notice::pytest exit code for ${{ matrix.test }}: $code"
           if ($code -ne 0) {
             "### pytest failure tail: ${{ matrix.test }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             '```text' | Out-File -Append $env:GITHUB_STEP_SUMMARY
             Get-Content pytest-output.txt -Tail 150 | Out-File -Append $env:GITHUB_STEP_SUMMARY
             '```' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            if (Test-Path pytest-output.txt) {
+              $lines = Get-Content pytest-output.txt -Tail 100
+              for ($i = 0; $i -lt $lines.Count; $i += 25) {
+                $end = [Math]::Min($i + 24, $lines.Count - 1)
+                $chunk = ($lines[$i..$end] -join "`n")
+                $escaped = $chunk -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+                Write-Host ('::error title=pytest failure tail part ' + ([int]($i / 25) + 1) + '::' + $escaped)
+              }
+            }
           }
           exit $code
   lint:
