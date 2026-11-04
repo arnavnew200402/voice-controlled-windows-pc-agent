@@ -1,0 +1,76 @@
+name: Windows preview installer
+on:
+  push:
+    branches:
+      - 'arena/32bc43fd-voice-controlled-windows-pc-ag'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" "PySide6-Essentials==6.8.3" "pyinstaller>=6.11,<7"
+      - name: Test (no real desktop actions)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+          VOX_REQUIRE_UI_TESTS: '1'
+        run: python -m pytest -m "not desktop" -q
+      - name: Build application
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --disable-windowed-traceback --name VoxPreview --paths . --add-data "vox/ui/qml;vox/ui/qml" scripts/windows_entry.py
+      - name: Add third-party notices
+        run: python scripts/collect_preview_licenses.py
+      - name: Smoke-test packaged app
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist/VoxPreview/VoxPreview.exe" -ArgumentList "--smoke-test" -PassThru -Wait
+          if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
+          if ($p.ExitCode -ne 0) { throw "Packaged app smoke test failed ($($p.ExitCode))" }
+          if (!(Test-Path vox-smoke-test.txt)) { throw "No smoke test result was created" }
+          Remove-Item vox-smoke-test.txt
+      - name: Build per-user Inno Setup installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found" }
+          & $iscc installer/vox-preview.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+      - name: Install and smoke-test in runner temporary directory
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        shell: pwsh
+        run: |
+          $setup = Resolve-Path "dist/installer/Vox-Preview-Setup.exe"
+          $target = Join-Path $env:RUNNER_TEMP "VoxPreviewTest"
+          $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer failed ($($p.ExitCode))" }
+          $p = Start-Process -FilePath (Join-Path $target 'VoxPreview.exe') -ArgumentList '--smoke-test' -PassThru -Wait
+          if (Test-Path vox-smoke-test.txt) { Get-Content vox-smoke-test.txt }
+          if ($p.ExitCode -ne 0 -or !(Test-Path vox-smoke-test.txt)) { throw "Installed app smoke test failed" }
+      - name: Generate checksum and copy readme
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/installer/Vox-Preview-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Vox-Preview-Setup.exe" | Out-File dist/installer/SHA256SUMS.txt -Encoding ascii
+          Copy-Item installer/README.txt dist/installer/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vox-windows-early-preview
+          path: dist/installer/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,57 @@
+{
+  "note": "Frame-swapped intervals in this environment, not a Windows GPU performance gate.",
+  "qt_platform": "offscreen",
+  "qt_quick_backend": "software",
+  "states": {
+    "idle": {
+      "samples": 0,
+      "p95_ms": null,
+      "max_ms": null
+    },
+    "wake": {
+      "samples": 39,
+      "p95_ms": 11.54,
+      "max_ms": 11.64
+    },
+    "listening": {
+      "samples": 86,
+      "p95_ms": 11.3,
+      "max_ms": 11.7
+    },
+    "thinking": {
+      "samples": 38,
+      "p95_ms": 11.62,
+      "max_ms": 11.74
+    },
+    "acting": {
+      "samples": 39,
+      "p95_ms": 11.45,
+      "max_ms": 11.48
+    },
+    "approval": {
+      "samples": 39,
+      "p95_ms": 11.56,
+      "max_ms": 11.67
+    },
+    "speaking": {
+      "samples": 86,
+      "p95_ms": 11.23,
+      "max_ms": 11.69
+    },
+    "error": {
+      "samples": 38,
+      "p95_ms": 11.52,
+      "max_ms": 11.61
+    },
+    "echo": {
+      "samples": 39,
+      "p95_ms": 11.5,
+      "max_ms": 11.55
+    },
+    "panel": {
+      "samples": 39,
+      "p95_ms": 11.6,
+      "max_ms": 11.7
+    }
+  }
+}

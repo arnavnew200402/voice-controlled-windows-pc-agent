@@ -15,15 +15,33 @@
 - [x] M6-01 Notch shape/springs/states/echo/approval/hover/badge/privacy dots (web)
 - [x] M7-01 EN + HI strings for the notch
 
+## Native foundation progress
+- [x] M1-01a Native Python entry point and in-memory bound-approval primitive with portable tests and Windows CI configuration (CI not yet observed).
+
+## ChatGPT provider
+- [x] M3-05 Implement preliminary ChatGPT-plan OAuth and streamed Responses provider; fake cryptographic, callback, provider and CLI tests. Default online; live/Windows validation remains open.
+- [ ] M3-06 Test real Windows DPAPI, ChatGPT sign-in and model tool calling; implement serialized rotating-token refresh, sign-out revocation and multiple accounts.
+- [x] M3-07a Connect limited ChatGPT sign-in/text to a separate preview UI, with online-busy indication, dry run by default and best-effort cancellation.
+- [ ] M3-07b Implement isolated workers, production safety gate and robust emergency stop; validate on Windows.
+
+## Native text vertical slice
+- [x] M1-01c Restricted local Ollama text request, typed single-tool registry, dry run, and Windows Notepad backend with foreground read-back; fakes and recorded loopback transport tests. Actual Windows and live-model verification outstanding.
+
+## Connected native sandbox
+- [x] M1-01b Connect Qt studio to versioned demo events, a background worker, in-memory fake tools, sandbox approvals and stop; cover the flow with tests. Not a real agent integration.
+
+## UI-first native prototype
+- [x] M6-02 Native visual-only Qt Quick notch studio, 10 synthetic states, reduce-motion toggle, offscreen captures and smoke test. Windows behavior and full M6 acceptance remain open.
+
 ## Open (not started unless noted)
 - [ ] UI-01 Capture screenshots + frame times (script written, could not run here)
-- [ ] M1-01 Python package `vox` (unification of Wyzer + Aemyos pieces); CI on Windows
+- [ ] M1-01 Python package `vox` (unification of Wyzer + Aemyos pieces); observe Windows CI. Approval primitive started in M1-01a; no tools or agent yet.
 - [ ] M2-01 Real voice loop: Silero VAD, openWakeWord, Faster-Whisper, Piper, WASAPI loopback AEC, `vox bench`
-- [ ] M2-02 Qt Quick notch with Win32 flags (no-activate, click-through, fullscreen hide, DPI, hot-plug)
+- [ ] M2-02 Qt Quick production notch with verified Win32 flags (no-activate, click-through, fullscreen hide, DPI, hot-plug); prototype only exists
 - [ ] M3-03 Socket-level offline guard + Windows Firewall test
 - [ ] M3-04 Verify Claude/Ollama adapters against live endpoints
 - [ ] M4-03 Missing tools: click_target/read_ui (vision→UIA), drag, scroll, zip/unzip, real Core Audio, CDP browser, Chrome extension path, find_installed index
 - [ ] M4-04 Model acceptance suites (≥80% gate) + `MODEL_BENCH.md`
 - [ ] M5-06 Speaker verification (flag only); real loopback correlation
 - [ ] M7-02 Settings window (keys in Credential Manager), onboarding wizard, hardware probe, model downloader, Aemyos language set + parity test
-- [ ] M8-01 PyInstaller/Nuitka + Inno Setup (online + offline), signing, `vox doctor`, soak tests, `LICENSES.md` review of wake-word/TTS voice licences
+- [ ] M8-01 PyInstaller/Nuitka + Inno Setup (online + offline), signing, `vox doctor`, soak tests, `LICENSES.md` review of wake-word/TTS voice licences. Online-only *preview* build configured but not yet validated in Windows CI.
