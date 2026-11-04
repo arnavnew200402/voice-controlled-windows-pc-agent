@@ -6,6 +6,8 @@ import http.client
 import json
 import math
 import secrets
+from collections.abc import Iterator
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -19,6 +21,32 @@ MAX_AUDIO = 8_000_000
 
 
 @dataclass(frozen=True)
+class TextDelta:
+    text: str
+
+
+@dataclass(frozen=True)
+class ToolCallComplete:
+    name: str
+    arguments: str  # complete JSON object string (validated by json.loads)
+
+
+@dataclass(frozen=True)
+class StreamUsage:
+    prompt_tokens: int | None = None
+    cached_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class StreamDone:
+    finish_reason: str = ""
+
+
+StreamEvent = TextDelta | ToolCallComplete | StreamUsage | StreamDone
+
+
+@dataclass(frozen=True)
 class Transcript:
     text: str
     confidence: float | None = None
@@ -28,6 +56,10 @@ class Transcript:
 
 class GroqTransport(Protocol):
     def post(self, path: str, data: bytes, content_type: str, limit: int) -> bytes: ...
+
+    def post_stream(
+        self, path: str, data: bytes, content_type: str, limit: int
+    ) -> Iterator[bytes]: ...
 
 
 class HTTPSGroqTransport:
@@ -42,7 +74,7 @@ class HTTPSGroqTransport:
         self._key = key
         self._timeout = timeout
 
-    def post(self, path: str, data: bytes, content_type: str, limit: int) -> bytes:
+    def _open(self, path: str, data: bytes, content_type: str) -> http.client.HTTPResponse:
         if path not in (
             "/openai/v1/chat/completions",
             "/openai/v1/audio/transcriptions",
@@ -63,11 +95,21 @@ class HTTPSGroqTransport:
             )
             response = conn.getresponse()
             if response.status != 200:
-                if response.status in (401, 403):
+                status = response.status
+                conn.close()
+                if status in (401, 403):
                     raise ProviderError("Groq rejected the API key or model access.")
-                if response.status == 429:
+                if status == 429:
                     raise ProviderError("Groq rate or usage limit reached.")
                 raise ProviderError("Groq request failed. Check model access and connection.")
+            return response
+        except (OSError, TimeoutError, http.client.HTTPException) as exc:
+            conn.close()
+            raise ProviderError("Could not reach Groq.") from exc
+
+    def post(self, path: str, data: bytes, content_type: str, limit: int) -> bytes:
+        response = self._open(path, data, content_type)
+        try:
             payload = response.read(limit + 1)
             if len(payload) > limit:
                 raise ProviderError("Groq response was too large.")
@@ -75,7 +117,26 @@ class HTTPSGroqTransport:
         except (OSError, TimeoutError, http.client.HTTPException) as exc:
             raise ProviderError("Could not reach Groq.") from exc
         finally:
-            conn.close()
+            with suppress(AttributeError, OSError):
+                response.close()
+
+    def post_stream(self, path: str, data: bytes, content_type: str, limit: int) -> Iterator[bytes]:
+        response = self._open(path, data, content_type)
+        total = 0
+        try:
+            while True:
+                line = response.readline()
+                if not line:
+                    break
+                total += len(line)
+                if total > limit:
+                    raise ProviderError("Groq response was too large.")
+                yield line
+        except (OSError, TimeoutError, http.client.HTTPException) as exc:
+            raise ProviderError("Could not reach Groq.") from exc
+        finally:
+            with suppress(AttributeError, OSError):
+                response.close()
 
 
 def _json(payload: bytes) -> dict[str, Any]:
@@ -210,3 +271,114 @@ class GroqClient:
         return self._transport.post(
             "/openai/v1/audio/speech", json.dumps(body).encode(), "application/json", MAX_AUDIO
         )
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        schemas: list[dict[str, object]],
+    ) -> Iterator[StreamEvent]:
+        """Streaming chat with incremental tool-call assembly (LE4).
+
+        A tool call is emitted only when complete: its accumulated
+        arguments parse as JSON *and* the stream has moved on (new tool
+        index, text content, finish reason, or end) — a bare "{}" prefix
+        can never dispatch early. Malformed SSE lines are skipped.
+        """
+        body = {
+            "model": self._model,
+            "messages": messages,
+            "tools": schemas,
+            "tool_choice": "auto",
+            "stream": True,
+        }
+        buffers: dict[int, dict[str, str]] = {}
+        emitted: set[int] = set()
+        finish_reason = ""
+        received_anything = False
+
+        def complete(index: int) -> ToolCallComplete | None:
+            if index in emitted or index not in buffers:
+                return None
+            name, arguments = buffers[index]["name"], buffers[index]["args"]
+            if not name:
+                return None
+            try:
+                parsed = json.loads(arguments or "{}")
+            except ValueError:
+                return None
+            if not isinstance(parsed, dict):
+                return None
+            emitted.add(index)
+            return ToolCallComplete(name=name, arguments=arguments or "{}")
+
+        for raw in self._transport.post_stream(
+            "/openai/v1/chat/completions",
+            json.dumps(body).encode(),
+            "application/json",
+            MAX_JSON,
+        ):
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                chunk = json.loads(payload)
+            except ValueError:
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            received_anything = True
+            usage = chunk.get("usage")
+            if isinstance(usage, dict):
+                details = usage.get("prompt_tokens_details")
+                cached = details.get("cached_tokens") if isinstance(details, dict) else None
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
+                yield StreamUsage(
+                    prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+                    cached_tokens=cached if isinstance(cached, int) else None,
+                    completion_tokens=completion_tokens
+                    if isinstance(completion_tokens, int)
+                    else None,
+                )
+            choices = chunk.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            raw_delta = choice.get("delta")
+            delta: dict[str, Any] = raw_delta if isinstance(raw_delta, dict) else {}
+            content = delta.get("content")
+            if isinstance(content, str) and content:
+                for index in sorted(buffers):  # model moved on to text
+                    if (done := complete(index)) is not None:
+                        yield done
+                yield TextDelta(text=content)
+            calls = delta.get("tool_calls")
+            if isinstance(calls, list):
+                for call in calls:
+                    if not isinstance(call, dict):
+                        continue
+                    index = call.get("index", 0)
+                    if not isinstance(index, int):
+                        continue
+                    for other in sorted(buffers):  # a new call seals the previous
+                        if other < index and (done := complete(other)) is not None:
+                            yield done
+                    buffer = buffers.setdefault(index, {"name": "", "args": ""})
+                    function = call.get("function")
+                    if isinstance(function, dict):
+                        if isinstance(function.get("name"), str):
+                            buffer["name"] += function["name"]
+                        if isinstance(function.get("arguments"), str):
+                            buffer["args"] += function["arguments"]
+            reason = choice.get("finish_reason")
+            if isinstance(reason, str) and reason:
+                finish_reason = reason
+        for index in sorted(buffers):
+            if (done := complete(index)) is not None:
+                yield done
+        if not received_anything:
+            raise ProviderError("Groq returned an empty stream.")
+        yield StreamDone(finish_reason=finish_reason)
