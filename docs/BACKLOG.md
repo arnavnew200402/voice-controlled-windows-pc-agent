@@ -58,3 +58,19 @@
 - [x] M4-06a2 Add write-only clipboard (`set_clipboard`: exact text bound to single-use approval, control/bidi rejection, 1,000-char cap, checked Win32 `CF_UNICODETEXT` write) and read-only SAFE-tier `system_info` (Windows version/architecture/system-drive use; no user or host names). Clipboard reading intentionally not implemented: contents are untrusted, often contain secrets, and the native slice has no redaction/untrusted-output layer. Fake backend tests cover binding, tamper resistance, tier downgrade, and fail-closed planning.
 - [ ] M4-06b Implement remaining PC control safely with production policy/audit, isolated cancellation and verified Windows backends; do not enable arbitrary shell or destructive tools prematurely.
 - [ ] M8-03 Observe Groq installer and file-level Windows CI; test install/uninstall on clean Windows VM; sign and review dependency licensing.
+
+## Live Command Engine (spec 2026-11-05; plan: `docs/LIVE_ENGINE_PLAN.md`)
+
+- [x] LE0-01 Audit existing voice/turn stack with file paths; confirm turn construction & memory (measured: 2 messages, no history).
+- [x] LE0-02 Voice-layer weakness list with per-phase disposition (`LIVE_ENGINE_PLAN.md` §3).
+- [x] LE0-03 Module map (`vox/engine/` adapters) + state-storage decision (SQLite WAL under `%LOCALAPPDATA%\vox\session\`).
+- [x] LE0-04 Baseline bench (`scripts/live_engine_baseline.py` → `artifacts/live_engine/baseline.json`): legacy 30-command replay, request shape, wake text-matcher FA/FR, matcher idle cost; audio/Groq/desktop metrics recorded `not_measured` with reasons.
+- [x] LE0-05 Log reconciliation decisions L-01…L-10 + operational deviations in `DECISIONS.md`; existing suite recorded (161 passed, 1 skipped @ `1af9145`).
+- [ ] LE1-01 Timeline + extended events, Clock injection, turn manager (soft/hard endpointing, pre-roll, fragment merge, commit point, generations), control plane (L-02), cancellable TTS with spoken offset, virtual-clock replay harness.
+- [ ] LE1b-01 Two-stage "Hi Vox" wake (VAD gate + Vosk verify), phrase/alias config + EN/HI i18n, wake timeout, lock/mic-busy suspend, `trigger=wake`, privacy states, calibrate, Windows `vox bench --wake` corpus → SPEECH_BENCH.md.
+- [ ] LE2-01 Contextualiser (code + small-model paths, A/B per L-01), entity registry, glossary, STT prompt + `verbose_json` confidence, phonetic repair, HI/Hinglish.
+- [ ] LE3-01 Memory layers: user card, preferences sheet, device index (BM25 + phonetic; vectors if licence-clean), SQLite session store + restore, delete-session-data, settings editors.
+- [ ] LE4-01 Prompt v2 + cache-ordered assembly, streaming chat with early T0 dispatch, meta-tools (ask_clarification/stay_silent/show_card), canned acks/earcons, notch/hover UI states.
+- [ ] LE5-01 Background memory writer, task stack, desktop input lock, undo as ordinary tools, dictation mode.
+- [ ] LE6-01 Per-turn fallback (+ optional hedging if bench-validated), stage timers + debug waterfall, screen_note attach.
+- [ ] LE7-01 Full verification (36 edge cases, red-team, offline guard, soak incl. 2 h ambient wake), A/B vs LE0 baseline; flip default to `live` + delete legacy only on parity-or-better; write `docs/LIVE_ENGINE_REPORT.md`.

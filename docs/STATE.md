@@ -1,13 +1,13 @@
 # STATE
 
-**Milestone:** Real Groq voice vertical slice in progress, now with hands-free “Hi Vox” wake word (on-device Vosk spotting; Record/Finish buttons removed). Folder opening, safe text typing, scroll, window management (minimize/maximize/restore/close), file operations (copy/move/delete), screenshots, clipboard write (exact approved text only; the clipboard is never read), read-only system info, and more built-in apps now implemented and fake-tested. The complete voice-first Windows agent and M1–M8 exit criteria remain unmet. The user changed provider priority from ChatGPT OAuth to Groq API key.
+**Milestone:** Real Groq voice vertical slice in progress, now with hands-free “Hi Vox” wake word (on-device Vosk spotting; Record/Finish buttons removed). Folder opening, safe text typing, scroll, window management (minimize/maximize/restore/close), file operations (copy/move/delete), screenshots, clipboard write (exact approved text only; the clipboard is never read), read-only system info, and more built-in apps now implemented and fake-tested. The complete voice-first Windows agent and M1–M8 exit criteria remain unmet. The user changed provider priority from ChatGPT OAuth to Groq API key. **Live Command Engine program (LE0–LE7) started 2026-11-05** per the user-supplied spec: timeline/turn-manager/memory/contextualiser/streaming behind `engine.mode=legacy|live` (default legacy); see `docs/LIVE_ENGINE_PLAN.md`.
 
 ## Done
 - Existing web reference and native simulation remain developer-only. The installed native UI is now connected to real (not simulated) Groq push-to-talk services.
 - User-entered Groq key is DPAPI-protected per Windows account, removable in UI, never logged; no real key used in tests.
 - Hands-free wake loop: with the toggle on, an offline Vosk small-en recognizer (bundled in the installer, or downloaded once on first enable from source installs) spots “Hi Vox” and common mis-hearings locally; no audio leaves the PC until the wake phrase. The request is then captured to memory with silence endpointing (max 15 s), sent to Groq Whisper STT → chat tool calling, with optional Orpheus TTS/WAV playback; listening resumes automatically. Mic/network indicators are always visible; TTS runs only while the microphone phases are closed. No screen capture except approved screenshots.
 - Closed action registry: Notepad, Calculator, Paint, Browser, Email, Settings, FileExplorer, Calendar, Photos, MediaPlayer, HTTPS websites, known/absolute local folders, exact text typing, scroll, window management (minimize/maximize/restore/close), file operations (copy/move/delete), screenshots, clipboard write of exact approved text (clipboard reads are not implemented by design), and read-only system information. All consequential actions require single-use, argument-bound approval. Websites, folders and typing require single-use, argument-bound 15-second click approval; dry run available. Model-supplied paths, shell commands, arbitrary apps, control/bidi characters and unsupported tools are rejected. Window titles and handles are never sent to Groq; the user selects the target locally.
-- Linux 2026-11-04: **161 passed, 1 Windows-only DPAPI skipped**; Ruff, formatting, mypy and Qt offscreen startup smoke passed, using fakes and no real network/microphone/desktop actions. Screenshots: `artifacts/ui/native/groq-voice.png`, `artifacts/ui/native/groq-voice-folder-typing.png`, `artifacts/ui/native/groq-handsfree.png` (Linux offscreen, not Windows evidence).
+- Linux 2026-11-05: **161 passed, 1 Windows-only DPAPI skipped** (re-verified at LE0 on `1af9145`); Ruff, formatting, mypy and Qt offscreen startup smoke passed, using fakes and no real network/microphone/desktop actions. Screenshots: `artifacts/ui/native/groq-voice.png`, `artifacts/ui/native/groq-voice-folder-typing.png`, `artifacts/ui/native/groq-handsfree.png` (Linux offscreen, not Windows evidence).
 - Windows Groq installer builds succeed routinely in CI (latest verified below); see `WINDOWS_TEST_CHECKLIST.md` for the physical validation procedure. The older ChatGPT-only preview artifact is not a Groq installer.
 
 ## In progress / limitations
@@ -25,6 +25,14 @@
 3. Build a reviewed, argument-bound policy/audit and cancellation isolation before broadening desktop, browser and file tools; extend tests including prompt injection and approvals.
 4. Implement remaining task engine, voice/wake-word/audio loopback protections, robust hotkeys, full Windows integration, and honest capability reporting.
 5. Complete offline mode, model acceptance benchmarks, installer signing/legal review, clean-VM install/uninstall, soak and desktop tests before merging.
+
+## Live Command Engine (LE phases; one commit per task, suite+CI green per phase)
+- LE0 **done** (2026-11-05): audit + `docs/LIVE_ENGINE_PLAN.md`, decisions L-01…L-10 logged, baseline `artifacts/live_engine/baseline.json` (legacy replay p50 plan 0.010 ms; request = 2 messages/no history/7,763 B; wake text-matcher FR 2/20, FA 0/20; audio metrics `not_measured` — sandbox limits).
+- LE1 next: timeline/events, Clock, turn manager (soft/hard endpointing, 1.5 s pre-roll, fragment merge, commit point, generations), L-02 control plane, cancellable TTS + spoken offset, replay harness. Exit: edge cases 1, 2, 4–6, 14, 27; cancel ≤150 ms measured (virtual clock).
+- LE1b: two-stage "Hi Vox" (VAD gate + Vosk verify), config/i18n phrases, timeout, lock/mic-busy suspend, `trigger=wake`, calibrate, Windows wake bench → SPEECH_BENCH.md.
+- LE2: contextualiser + entity registry + glossary (+ STT confidence/hotwords). LE3: memory layers + SQLite store + retrieval.
+- LE4: prompt v2, streaming + early T0 dispatch, meta-tools, acks, UI states. LE5: background memory, task stack, input lock, undo, dictation.
+- LE6: per-turn fallback/hedging (bench-gated), latency waterfall, screen notes. LE7: full verification + A/B vs baseline; flip default only on parity+.
 
 ## Blockers
 No Windows desktop or microphone here; outbound sandbox access excludes Groq. GitHub Actions artifacts cannot be downloaded into the workspace because their storage host is outside the allowlist. See `BLOCKERS.md`.

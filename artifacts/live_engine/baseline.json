@@ -1,0 +1,74 @@
+{
+  "phase": "LE0",
+  "path": "legacy",
+  "environment": "Linux sandbox, fake backend/transport, no mic/key/network",
+  "measured": {
+    "legacy_replay": {
+      "commands": 30,
+      "runs": 3,
+      "plan_errors": 12,
+      "executed_ok": 57,
+      "plan": {
+        "n": 78,
+        "p50_ms": 0.013,
+        "p95_ms": 0.048,
+        "mean_ms": 0.018
+      },
+      "approve_plus_execute_fake_backend": {
+        "n": 57,
+        "p50_ms": 0.005,
+        "p95_ms": 0.051,
+        "mean_ms": 0.017
+      },
+      "note": "Local overhead only (validate/plan/approve/dispatch to an instant fake backend). Excludes mic capture, network STT/chat/TTS and real desktop actions \u2014 none are measurable in this sandbox. plan_errors are folder/file items whose binding checks the real (Windows) filesystem, absent here; they are covered by tests/test_groq_voice.py fixtures."
+    },
+    "llm_request": {
+      "messages_count": 2,
+      "roles": [
+        "system",
+        "user"
+      ],
+      "includes_prior_turns": false,
+      "stream": false,
+      "tool_schemas_count": 15,
+      "request_bytes": 7763,
+      "system_prompt_chars": 171
+    },
+    "wake_matcher_text": {
+      "level": "text matcher only (contains_wake_phrase); NOT audio FA/FR",
+      "positives": 20,
+      "missed": [
+        "hai vox",
+        "hi folks"
+      ],
+      "false_reject_rate": 0.1,
+      "negatives": 20,
+      "false_accepts": [],
+      "false_accept_rate": 0.0
+    },
+    "idle_matcher_cost": {
+      "scope": "frame_rms + wake text matcher at 4 fps; EXCLUDES Vosk inference",
+      "frames": 12,
+      "cpu_pct_of_one_core": 0.1,
+      "process_rss_mb": 32.1
+    }
+  },
+  "not_measured": [
+    {
+      "metric": "wake audio false-accept/false-reject",
+      "reason": "Vosk model host (alphacephei.com) unreachable from sandbox; no microphone. Scheduled: Windows `vox bench --wake` in LE1b with the model bundled by CI."
+    },
+    {
+      "metric": "idle detector CPU/RAM incl. Vosk inference",
+      "reason": "Same as above; only the pure-Python matcher share is measured."
+    },
+    {
+      "metric": "STT/chat/TTS latencies (Groq)",
+      "reason": "No API key in sandbox; providers stubbed per autonomy contract."
+    },
+    {
+      "metric": "end-of-speech to action-complete on a real desktop",
+      "reason": "Linux sandbox has no Windows desktop; physical validation is the checklist in docs/WINDOWS_TEST_CHECKLIST.md."
+    }
+  ]
+}
