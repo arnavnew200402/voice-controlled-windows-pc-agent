@@ -10,9 +10,10 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from vox.agent.auth_storage import StorageError
-from vox.agent.groq_tools import PlannedAction
+from vox.agent.groq_tools import PlannedAction, TypingRequest
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
+from vox.agent.windows_control import WindowRef
 from vox.voice.audio import AudioError
 from vox.voice.service import GroqVoiceService, Outcome
 
@@ -34,6 +35,8 @@ class GroqViewModel(QObject):
         self._finish = threading.Event()
         self._pending: PlannedAction | None = None
         self._approval_id: str | None = None
+        self._windows: list[WindowRef] = []
+        self._selected_window = -1
         self._results: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._timer = QTimer(self)
         self._timer.setInterval(25)
@@ -108,6 +111,32 @@ class GroqViewModel(QObject):
     @Property(str, notify=changed)  # type: ignore[call-arg, arg-type]
     def approvalText(self) -> str:
         return self._pending.description if self._pending else ""
+
+    @Property(bool, notify=changed)  # type: ignore[call-arg, arg-type]
+    def needsWindow(self) -> bool:
+        return bool(self._pending and isinstance(self._pending.args, TypingRequest))
+
+    @Property("QStringList", notify=changed)  # type: ignore[call-arg, arg-type]
+    def windowChoices(self) -> list[str]:
+        return [
+            f"Window: {window.title} · PID {window.pid} · {window.window_class}"
+            for window in self._windows
+        ]
+
+    @Slot(int)
+    def selectWindow(self, index: int) -> None:
+        self._selected_window = index if 0 <= index < len(self._windows) else -1
+
+    @Slot()
+    def refreshWindows(self) -> None:
+        if not self.needsWindow:
+            return
+        try:
+            self._windows = self._services.registry.list_windows()
+        except Exception:  # noqa: BLE001 - window enumeration must fail closed
+            self._windows = []
+        self._selected_window = -1
+        self.changed.emit()
 
     @Property(str, notify=changed)  # type: ignore[call-arg, arg-type]
     def status(self) -> str:
@@ -223,10 +252,28 @@ class GroqViewModel(QObject):
 
     @Slot()
     def approve(self) -> None:
-        if not self._pending or not self._approval_id or self._busy:
+        if not self._pending or self._busy:
             return
         action, approval_id = self._pending, self._approval_id
+        if isinstance(action.args, TypingRequest):
+            if not 0 <= self._selected_window < len(self._windows):
+                self._status = "Select a target window and review the text before confirming."
+                self.changed.emit()
+                return
+            try:
+                action = self._services.registry.bind_typing(
+                    action, self._windows[self._selected_window]
+                )
+                approval_id = self._services.registry.request_approval(action)
+            except (ValueError, RuntimeError):
+                self._error("Could not bind the selected window; no text was sent.")
+                return
+        if not approval_id:
+            self._error("Approval is unavailable. No action was performed.")
+            return
         self._pending, self._approval_id = None, None
+        self._windows = []
+        self._selected_window = -1
         if not self._services.registry.resolve_approval(approval_id, True):
             self._error("Approval expired or was already resolved.")
             return
@@ -238,10 +285,13 @@ class GroqViewModel(QObject):
 
     @Slot()
     def deny(self) -> None:
-        if self._pending and self._approval_id:
-            self._services.registry.resolve_approval(self._approval_id, False)
+        if self._pending:
+            if self._approval_id:
+                self._services.registry.resolve_approval(self._approval_id, False)
             self._pending, self._approval_id = None, None
-            self._error("Action declined. Nothing was opened.")
+            self._windows = []
+            self._selected_window = -1
+            self._error("Action declined. Nothing was performed.")
 
     @Slot()
     def cancel(self) -> None:
@@ -250,7 +300,9 @@ class GroqViewModel(QObject):
         self._services.registry.approvals.deny_all()
         if self._pending:
             self._pending, self._approval_id = None, None
-            self._error("Action cancelled. Nothing was opened.")
+            self._windows = []
+            self._selected_window = -1
+            self._error("Action cancelled. Nothing was performed.")
         elif self._busy:
             self._status = (
                 "Stopping… an action or playback already started may not stop immediately."
@@ -293,11 +345,25 @@ class GroqViewModel(QObject):
                 self._error("Stopped. An action already started may still have completed.")
             elif outcome.pending is not None:
                 self._pending = outcome.pending
-                self._approval_id = self._services.registry.request_approval(outcome.pending)
                 self._state, self._title = "approval", "Confirmation required"
-                self._detail = self._status = (
-                    "Review the website below. Approval expires after 15 seconds."
-                )
+                if isinstance(outcome.pending.args, TypingRequest):
+                    self._approval_id = None
+                    self.refreshWindows()
+                    self._detail = self._status = (
+                        "Choose the exact window and review the text. Position its text cursor first."
+                    )
+                else:
+                    try:
+                        self._approval_id = self._services.registry.request_approval(
+                            outcome.pending
+                        )
+                    except (ValueError, RuntimeError):
+                        self._pending = None
+                        self._error("Could not prepare approval; no action was performed.")
+                        continue
+                    self._detail = self._status = (
+                        "Review the action below. Approval expires after 15 seconds."
+                    )
                 self.changed.emit()
             elif outcome.result is not None:
                 self._state = "result" if outcome.result.ok else "error"

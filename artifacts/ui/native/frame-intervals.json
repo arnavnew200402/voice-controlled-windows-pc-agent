@@ -10,48 +10,48 @@
     },
     "wake": {
       "samples": 39,
-      "p95_ms": 11.54,
-      "max_ms": 11.64
+      "p95_ms": 11.12,
+      "max_ms": 15.89
     },
     "listening": {
-      "samples": 86,
-      "p95_ms": 11.3,
-      "max_ms": 11.7
+      "samples": 85,
+      "p95_ms": 13.09,
+      "max_ms": 14.59
     },
     "thinking": {
       "samples": 38,
-      "p95_ms": 11.62,
-      "max_ms": 11.74
+      "p95_ms": 11.91,
+      "max_ms": 12.06
     },
     "acting": {
       "samples": 39,
-      "p95_ms": 11.45,
-      "max_ms": 11.48
+      "p95_ms": 11.35,
+      "max_ms": 15.99
     },
     "approval": {
       "samples": 39,
-      "p95_ms": 11.56,
-      "max_ms": 11.67
+      "p95_ms": 12.17,
+      "max_ms": 14.42
     },
     "speaking": {
-      "samples": 86,
-      "p95_ms": 11.23,
-      "max_ms": 11.69
+      "samples": 85,
+      "p95_ms": 12.49,
+      "max_ms": 17.18
     },
     "error": {
-      "samples": 38,
-      "p95_ms": 11.52,
-      "max_ms": 11.61
+      "samples": 37,
+      "p95_ms": 11.26,
+      "max_ms": 11.32
     },
     "echo": {
       "samples": 39,
-      "p95_ms": 11.5,
-      "max_ms": 11.55
+      "p95_ms": 11.51,
+      "max_ms": 11.59
     },
     "panel": {
       "samples": 39,
-      "p95_ms": 11.6,
-      "max_ms": 11.7
+      "p95_ms": 11.49,
+      "max_ms": 15.45
     }
   }
 }

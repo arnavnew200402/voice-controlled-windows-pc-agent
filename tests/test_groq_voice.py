@@ -12,9 +12,17 @@ import pytest
 from vox.agent.auth_storage import StorageError
 from vox.agent.groq import GroqClient, HTTPSGroqTransport
 from vox.agent.groq_key import GroqKeyStore
-from vox.agent.groq_tools import GroqRegistry, PlannedAction, WebsiteArgs
+from vox.agent.groq_tools import (
+    FolderBound,
+    GroqRegistry,
+    PlannedAction,
+    TypingBound,
+    TypingRequest,
+    WebsiteArgs,
+)
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
+from vox.agent.windows_control import WindowRef
 from vox.approvals import Tier
 from vox.voice.audio import AudioError, record_wav
 from vox.voice.service import GroqVoiceService
@@ -50,6 +58,34 @@ class FakeBackend:
         self.calls.append(("url", url))
         return ToolResult(ok=True, evidence="Browser asked to open URL.")
 
+    def resolve_folder(self, target):
+        self.calls.append(("resolve", target))
+        return r"C:\Users\tester\Downloads"
+
+    def open_folder(self, path):
+        self.calls.append(("folder", path))
+        return ToolResult(ok=True, evidence="Explorer asked to open the approved folder.")
+
+    def list_windows(self):
+        self.calls.append(("windows",))
+        return [
+            WindowRef(
+                hwnd=10, pid=100, created=1, focus_hwnd=20, title="Notepad", window_class="Notepad"
+            ),
+            WindowRef(
+                hwnd=11,
+                pid=101,
+                created=2,
+                focus_hwnd=21,
+                title="Calculator",
+                window_class="CalcFrame",
+            ),
+        ]
+
+    def type_text(self, target, text):
+        self.calls.append(("typing", target.title, text))
+        return ToolResult(ok=True, evidence="Input sent to the selected window.")
+
 
 def test_chat_and_transcription_wire_formats():
     transport = Transport(response(tool_message()))
@@ -60,7 +96,12 @@ def test_chat_and_transcription_wire_formats():
     assert path == "/openai/v1/chat/completions" and content_type == "application/json"
     assert payload["model"] == "openai/gpt-oss-20b"
     assert payload["messages"][-1]["content"] == "Open Calculator"
-    assert {x["function"]["name"] for x in payload["tools"]} == {"open_app", "open_website"}
+    assert {x["function"]["name"] for x in payload["tools"]} == {
+        "open_app",
+        "open_website",
+        "open_folder",
+        "type_text",
+    }
     transport.data = b'{"text":"Open Notepad"}'
     wav = b"RIFF" + b"x" * 50
     assert client.transcribe(wav) == "Open Notepad"
@@ -165,6 +206,94 @@ def test_website_approval_binds_exact_args_is_single_use_and_cancelled():
     assert registry.resolve_approval(approval, True)
     registry.approvals.deny_all()
     assert not registry.execute(action, approval).ok
+
+
+def test_known_and_absolute_folder_resolution_binds_resolved_path():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(tool_message("open_folder", json.dumps({"target": "Downloads"})))
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, FolderBound)
+    assert action.args.path == r"C:\Users\tester\Downloads"
+    assert not registry.execute(action).ok
+    approval = registry.request_approval(action)
+    assert registry.resolve_approval(approval, True)
+    changed = PlannedAction(
+        "open_folder", FolderBound(path=r"C:\Users\tester\Documents"), Tier.CONFIRM
+    )
+    assert not registry.execute(changed, approval).ok
+    assert registry.execute(action, approval).ok
+    assert not registry.execute(action, approval).ok
+    assert backend.calls[:2] == [
+        ("resolve", "Downloads"),
+        ("folder", r"C:\Users\tester\Downloads"),
+    ]
+
+
+@pytest.mark.parametrize("target", ["downloads", "Downloads"])
+def test_folder_known_aliases_resolve(target):
+    backend = FakeBackend()
+    action = GroqRegistry(backend).plan(tool_message("open_folder", json.dumps({"target": target})))
+    assert action.args.path == r"C:\Users\tester\Downloads"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "%LOCALAPPDATA%\\Downloads",
+        "\\\\server\\share",
+        "C:\\Downloads\\..\\Secrets",
+    ],
+)
+def test_folder_request_rejects_unsafe_targets(target):
+    with pytest.raises(ProviderError):
+        GroqRegistry(FakeBackend()).plan(
+            tool_message("open_folder", json.dumps({"target": target}))
+        )
+
+
+def test_typing_request_binds_selected_window_and_text_is_single_use():
+    backend = FakeBackend()
+    registry = GroqRegistry(backend)
+    action = registry.plan(
+        tool_message("type_text", json.dumps({"text": "hello", "target_hint": "Notepad"}))
+    )
+    assert action.tier is Tier.CONFIRM and isinstance(action.args, TypingRequest)
+    window = backend.list_windows()[0]
+    bound = registry.bind_typing(action, window)
+    assert isinstance(bound.args, TypingBound) and bound.args.window == window
+    approval = registry.request_approval(bound)
+    assert registry.resolve_approval(approval, True)
+    changed_window = registry.bind_typing(action, backend.list_windows()[1])
+    assert not registry.execute(changed_window, approval).ok
+    changed_text = registry.bind_typing(action, window).args.model_copy(
+        update={"text": "hello; rm -rf"}
+    )
+    assert not registry.execute(PlannedAction("type_text", changed_text, Tier.CONFIRM), approval).ok
+    assert registry.execute(bound, approval).ok
+    assert not registry.execute(bound, approval).ok
+    assert backend.calls[-2:] == [("windows",), ("typing", "Notepad", "hello")]
+
+
+@pytest.mark.parametrize(
+    "text", ["hello\nworld", "hello\ttab", "hello\u200eworld", "hello\u202eworld"]
+)
+def test_typing_request_rejects_control_and_bidi_characters(text):
+    with pytest.raises(ProviderError):
+        GroqRegistry(FakeBackend()).plan(tool_message("type_text", json.dumps({"text": text})))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        tool_message("open_folder", json.dumps({"target": "relative\\secrets"})),
+        tool_message("type_text", json.dumps({"text": "hello\nworld"})),
+    ],
+)
+def test_folder_and_typing_injection_fail_closed(message):
+    backend = FakeBackend()
+    with pytest.raises(ProviderError):
+        GroqRegistry(backend).plan(message)
+    assert backend.calls == []
 
 
 @pytest.mark.parametrize(

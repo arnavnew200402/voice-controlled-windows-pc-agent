@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import time
+import unicodedata
 import webbrowser
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -17,6 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from vox.agent.provider import ProviderError
 from vox.agent.tools import ToolResult
 from vox.agent.windows import foreground_pid, system_directory
+from vox.agent.windows_control import (
+    KNOWN_FOLDERS,
+    WindowRef,
+    WindowsWindows,
+    open_resolved_folder,
+    resolve_folder,
+    valid_local_path,
+)
 from vox.approvals import ApprovalStore, Tier, Via
 
 
@@ -66,6 +75,66 @@ class WebsiteArgs(BaseModel):
         return value
 
 
+class FolderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    target: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="A known folder (Downloads, Documents, Desktop, Pictures, Music, Videos, Home), or its exact absolute local Windows path.",
+    )
+
+    @field_validator("target")
+    @classmethod
+    def validate_target(cls, value: str) -> str:
+        if value.lower() not in KNOWN_FOLDERS and not valid_local_path(value):
+            raise ValueError("A known folder or absolute local Windows path is required")
+        return value
+
+
+class FolderBound(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    path: str
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        if not valid_local_path(value):
+            raise ValueError("Invalid resolved path")
+        return value
+
+
+class TypingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    text: str = Field(
+        min_length=1,
+        max_length=300,
+        description="Exact text to type, without Enter, Tab or other control characters.",
+    )
+    target_hint: str = Field(
+        default="",
+        max_length=120,
+        description="The app or window mentioned by the user, if any; the user chooses the actual target locally.",
+    )
+
+    @field_validator("text", "target_hint")
+    @classmethod
+    def visible_text(cls, value: str) -> str:
+        if any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value):
+            raise ValueError("Control and hidden formatting characters are not supported")
+        return value
+
+
+class TypingBound(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    text: str
+    window: WindowRef
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return TypingRequest(text=value).text
+
+
 @dataclass(frozen=True)
 class PlannedAction:
     name: str
@@ -78,12 +147,23 @@ class PlannedAction:
             return f"Open Windows {self.args.name}."
         if isinstance(self.args, WebsiteArgs):
             return f"Open this website in your browser:\n{self.args.url}"
+        if isinstance(self.args, FolderBound):
+            return f"Open this local folder:\n{self.args.path}"
+        if isinstance(self.args, TypingRequest):
+            hint = f"\nRequested app: {self.args.target_hint}" if self.args.target_hint else ""
+            return f"Type this exact text in the window you select:\n{self.args.text}{hint}"
+        if isinstance(self.args, TypingBound):
+            return f"Type this exact text in {self.args.window.title}:\n{self.args.text}"
         return "Unsupported action."
 
 
 class DesktopBackend(Protocol):
     def open_app(self, name: str) -> ToolResult: ...
     def open_website(self, url: str) -> ToolResult: ...
+    def resolve_folder(self, target: str) -> str: ...
+    def open_folder(self, path: str) -> ToolResult: ...
+    def list_windows(self) -> list[WindowRef]: ...
+    def type_text(self, target: WindowRef, text: str) -> ToolResult: ...
 
 
 class WindowsDesktopBackend:
@@ -121,6 +201,24 @@ class WindowsDesktopBackend:
             pass
         return ToolResult(ok=False, evidence="Could not open the approved website.")
 
+    def resolve_folder(self, target: str) -> str:
+        return resolve_folder(target)
+
+    def open_folder(self, path: str) -> ToolResult:
+        return open_resolved_folder(path)
+
+    def list_windows(self) -> list[WindowRef]:
+        try:
+            return WindowsWindows().list_windows()
+        except OSError:
+            return []
+
+    def type_text(self, target: WindowRef, text: str) -> ToolResult:
+        try:
+            return WindowsWindows().type_text(target, text)
+        except OSError:
+            return ToolResult(ok=False, evidence="Windows input is unavailable. No text was sent.")
+
 
 class GroqRegistry:
     def __init__(self, backend: DesktopBackend) -> None:
@@ -128,13 +226,28 @@ class GroqRegistry:
         self.approvals = ApprovalStore()
 
     def request_approval(self, action: PlannedAction) -> str:
-        if (
-            action.name != "open_website"
-            or action.tier is not Tier.CONFIRM
-            or not isinstance(action.args, WebsiteArgs)
-        ):
+        allowed = (
+            (action.name == "open_website" and isinstance(action.args, WebsiteArgs))
+            or (action.name == "open_folder" and isinstance(action.args, FolderBound))
+            or (action.name == "type_text" and isinstance(action.args, TypingBound))
+        )
+        if not allowed or action.tier is not Tier.CONFIRM:
             raise ValueError("Action does not support approval")
         return self.approvals.request(action.name, action.args, action.tier).id
+
+    def list_windows(self) -> list[WindowRef]:
+        return self._backend.list_windows()
+
+    def bind_typing(self, action: PlannedAction, window: WindowRef) -> PlannedAction:
+        if (
+            action.name != "type_text"
+            or action.tier is not Tier.CONFIRM
+            or not isinstance(action.args, TypingRequest)
+        ):
+            raise ValueError("Action is not a typing request")
+        return PlannedAction(
+            "type_text", TypingBound(text=action.args.text, window=window), Tier.CONFIRM
+        )
 
     def resolve_approval(self, approval_id: str, approve: bool) -> bool:
         return self.approvals.resolve(approval_id, approve=approve, via=Via.CLICK)
@@ -155,6 +268,22 @@ class GroqRegistry:
                     "name": "open_website",
                     "description": "Ask the user for permission to open a specific HTTPS website in their browser.",
                     "parameters": WebsiteArgs.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "open_folder",
+                    "description": "Open a known Windows folder or a specified absolute local folder. The user must approve the resolved path.",
+                    "parameters": FolderRequest.model_json_schema(),
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "type_text",
+                    "description": "Type the exact requested text into a window selected and approved by the user. Cannot press Enter or Tab.",
+                    "parameters": TypingRequest.model_json_schema(),
                 },
             },
         ]
@@ -192,7 +321,16 @@ class GroqRegistry:
                 return PlannedAction("open_app", AppArgs.model_validate(raw), Tier.SAFE)
             if call.get("name") == "open_website":
                 return PlannedAction("open_website", WebsiteArgs.model_validate(raw), Tier.CONFIRM)
-        except (ValueError, ValidationError) as exc:
+            if call.get("name") == "open_folder":
+                request = FolderRequest.model_validate(raw)
+                return PlannedAction(
+                    "open_folder",
+                    FolderBound(path=self._backend.resolve_folder(request.target)),
+                    Tier.CONFIRM,
+                )
+            if call.get("name") == "type_text":
+                return PlannedAction("type_text", TypingRequest.model_validate(raw), Tier.CONFIRM)
+        except (ValueError, ValidationError, OSError) as exc:
             raise ProviderError("Groq returned invalid or unsupported action arguments.") from exc
         raise ProviderError("That action is not supported.")
 
@@ -204,17 +342,22 @@ class GroqRegistry:
             and isinstance(action.args, AppArgs)
         ):
             return self._backend.open_app(action.args.name)
-        if (
-            action.name == "open_website"
-            and action.tier is Tier.CONFIRM
-            and isinstance(action.args, WebsiteArgs)
-        ):
+        allowed = (
+            (action.name == "open_website" and isinstance(action.args, WebsiteArgs))
+            or (action.name == "open_folder" and isinstance(action.args, FolderBound))
+            or (action.name == "type_text" and isinstance(action.args, TypingBound))
+        )
+        if allowed and action.tier is Tier.CONFIRM:
             if not approval_id or not self.approvals.consume(
                 approval_id, action.name, action.args, tier=action.tier
             ):
                 return ToolResult(
-                    ok=False,
-                    evidence="Website approval is missing or expired. No action was performed.",
+                    ok=False, evidence="Approval is missing or expired. No action was performed."
                 )
-            return self._backend.open_website(action.args.url)
+            if isinstance(action.args, WebsiteArgs):
+                return self._backend.open_website(action.args.url)
+            if isinstance(action.args, FolderBound):
+                return self._backend.open_folder(action.args.path)
+            if isinstance(action.args, TypingBound):
+                return self._backend.type_text(action.args.window, action.args.text)
         return ToolResult(ok=False, evidence="Unsupported action.")

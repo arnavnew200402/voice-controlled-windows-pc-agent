@@ -156,6 +156,96 @@ def test_groq_ui_is_wired_to_background_services():
     close_preview(engine)
 
 
+def test_window_selection_and_typing_confirmation_are_wired():
+    import threading
+
+    from vox.agent.groq_tools import GroqRegistry
+    from vox.agent.tools import ToolResult
+    from vox.agent.windows_control import WindowRef
+    from vox.ui.app import create_live
+    from vox.voice.service import Outcome
+
+    class Backend:
+        def open_app(self, name):
+            raise AssertionError("not expected")
+
+        def open_website(self, url):
+            raise AssertionError("not expected")
+
+        def open_folder(self, path):
+            raise AssertionError("not expected")
+
+        def resolve_folder(self, target):
+            raise AssertionError("not expected")
+
+        def list_windows(self):
+            return [
+                WindowRef(
+                    hwnd=10,
+                    pid=100,
+                    created=1,
+                    focus_hwnd=20,
+                    title="Notepad",
+                    window_class="Notepad",
+                )
+            ]
+
+        def type_text(self, target, text):
+            self.calls.append((target.title, text))
+            return ToolResult(ok=True, evidence="Fake typing action completed.")
+
+    class Services:
+        def __init__(self):
+            self.backend = Backend()
+            self.backend.calls = []
+            self.registry = GroqRegistry(self.backend)
+            self.capture_started = threading.Event()
+
+        def voice(self, finished, cancelled, dry_run, on_processing):
+            self.capture_started.set()
+            while not finished() and not cancelled():
+                threading.Event().wait(0.01)
+            on_processing()
+            action = self.registry.plan(
+                {
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "type_text",
+                                "arguments": '{"text":"hello","target_hint":"Notepad"}',
+                            },
+                        }
+                    ]
+                }
+            )
+            return Outcome(pending=action, transcript="type hello in notepad")
+
+        def speak(self, text, cancelled):
+            pass
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    engine, model = create_live(app)
+    services = Services()
+    model._services = services
+    root = engine.rootObjects()[0]
+    speak = root.findChild(QObject, "speak")
+    speak.setProperty("checked", False)
+    record = root.findChild(QObject, "recordButton")
+    finish = root.findChild(QObject, "finishButton")
+    approve = root.findChild(QObject, "approveButton")
+    assert QMetaObject.invokeMethod(record, "clicked")
+    wait_until(lambda: services.capture_started.is_set())
+    assert QMetaObject.invokeMethod(finish, "clicked")
+    wait_until(lambda: model.approvalPending and model.needsWindow)
+    assert len(model.windowChoices) == 1 and "Notepad" in model.windowChoices[0]
+    assert QMetaObject.invokeMethod(approve, "clicked")
+    wait_until(lambda: not model.busy)
+    assert services.backend.calls == [("Notepad", "hello")]
+    assert model.status == "Fake typing action completed."
+    close_preview(engine)
+
+
 def test_voice_recording_and_website_confirmation_are_connected():
     import threading
 

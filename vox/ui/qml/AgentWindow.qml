@@ -45,8 +45,8 @@ ApplicationWindow {
                 color: "#1d1a20"; border.color: "#514033"
                 ColumnLayout {
                     anchors.fill: parent; anchors.leftMargin: 17; anchors.rightMargin: 17; anchors.topMargin: 11; anchors.bottomMargin: 11; spacing: 3
-                    Text { text: "Currently supported: Notepad, Calculator, Paint and HTTPS websites"; color: "#f5d6b4"; font.family: theme.fontFamily; font.pixelSize: 12; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
-                    Text { text: "Websites require confirmation. Other PC actions are not available yet."; color: "#ad9989"; font.family: theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text { text: "Supported: built-in apps, HTTPS websites, local folders and text input"; color: "#f5d6b4"; font.family: theme.fontFamily; font.pixelSize: 12; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text { text: "Folders, websites and text input require confirmation; other actions are unavailable."; color: "#ad9989"; font.family: theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 }
             }
             Item { Layout.preferredHeight: 20 }
@@ -118,12 +118,34 @@ ApplicationWindow {
                 ColumnLayout {
                     id: approvalLayout
                     anchors.fill: parent; anchors.margins: 12; spacing: 8
-                    Text { text: "CONFIRM WEBSITE · EXPIRES IN 15 SECONDS"; color: "#ffc778"; font.bold: true; font.pixelSize: 10; Layout.fillWidth: true }
-                    Text { text: viewModel.approvalText; color: theme.text; font.pixelSize: 12; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
+                    Text { text: "CONFIRM ACTION"; color: "#ffc778"; font.bold: true; font.pixelSize: 10; Layout.fillWidth: true }
+                    Text { text: viewModel.approvalText; textFormat: Text.PlainText; color: theme.text; font.pixelSize: 12; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
+                    Text { visible: viewModel.needsWindow; text: "Place the text cursor in the target app, return here, then refresh and select its window. Text may be entered into its focused control."; textFormat: Text.PlainText; color: theme.muted; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    RowLayout {
+                        visible: viewModel.needsWindow
+                        Layout.fillWidth: true
+                        ComboBox {
+                            id: targetWindow
+                            objectName: "targetWindow"
+                            Layout.fillWidth: true
+                            model: viewModel.windowChoices
+                            currentIndex: -1
+                            displayText: currentIndex < 0 ? "Choose a window…" : currentText
+                            onCurrentIndexChanged: viewModel.selectWindow(currentIndex)
+                            contentItem: Text { text: targetWindow.displayText; textFormat: Text.PlainText; color: theme.text; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; leftPadding: 9 }
+                            background: Rectangle { radius: 9; color: "#171c25"; border.color: theme.line }
+                            delegate: ItemDelegate {
+                                required property string modelData
+                                width: targetWindow.width
+                                contentItem: Text { text: parent.modelData; textFormat: Text.PlainText; color: theme.text; elide: Text.ElideRight }
+                            }
+                        }
+                        DemoButton { objectName: "refreshWindowsButton"; text: "Refresh"; onClicked: { viewModel.refreshWindows(); targetWindow.currentIndex = -1 } }
+                    }
                     RowLayout {
                         Item { Layout.fillWidth: true }
                         DemoButton { objectName: "declineButton"; text: "Decline"; onClicked: viewModel.deny() }
-                        DemoButton { objectName: "approveButton"; text: "Open website"; primary: true; onClicked: viewModel.approve() }
+                        DemoButton { objectName: "approveButton"; text: "Confirm action"; primary: true; onClicked: viewModel.approve() }
                     }
                 }
             }
