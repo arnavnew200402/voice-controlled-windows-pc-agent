@@ -8,7 +8,7 @@
 - Separate actual online preview UI (`--ui`) connects browser sign-in and typed requests to that restricted path. It discloses online use, enables dry run by default and implements cooperative stop (not an isolated worker). `--ui-demo` remains simulated.
 - Screenshot: `artifacts/ui/native/online-preview.png`, captured with Linux offscreen software rendering; not Windows or GPU evidence.
 - 2026-11-04 Linux: **68 passed, 1 Windows-only DPAPI skipped**; Ruff, format check, mypy and Python-entry Qt offscreen smoke passed. Tests use fake provider/credentials; no real Notepad launch.
-- Windows x64 per-user Inno Setup/PyInstaller preview workflow configured. First Windows CI run was cancelled after tests hung for over three minutes; follow-up adds per-test timeouts and splits test steps but Windows non-UI tests still hung. The preview build job is independent of the test job so packaging can be investigated without claiming tests passed; build result pending.
+- Windows x64 per-user Inno Setup/PyInstaller preview job succeeded in GitHub Actions run 41855510009: packaged app rendered offscreen, installer ran in the runner temporary directory, and installed app rendered offscreen. Artifact `vox-windows-early-preview` is available for 30 days. The separate Windows non-UI tests hung; CI test job remains unverified, and packaging success is not a full test pass.
 
 ## In progress / limitations
 - Full voice, general PC control, production approvals/policy/audit, isolated workers, socket-level offline guard and complete installer acceptance criteria do not exist.
@@ -17,7 +17,7 @@
 - Installer is unsigned, online-only and explicitly labeled early preview; legal packaging notices included but distribution compliance still needs independent review. Not a release of the full agent.
 
 ## Next 5 tasks
-1. Observe Windows CI tests and packaged/installed smoke tests; provide artifact only if build succeeds.
+1. Diagnose the stalled Windows non-UI CI tests and complete the separate Qt test job; do not merge until exit criteria pass.
 2. Test the installer, DPAPI, SIWC sign-in, inference, Notepad and uninstall on a clean Windows 10/11 VM using an authorized test account.
 3. Add serialized OAuth refresh, revocation/sign-out and account management with adversarial tests.
 4. Integrate production policy/audit and isolated workers with verified emergency stop before expanding desktop tools.

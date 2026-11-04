@@ -22,31 +22,16 @@ jobs:
       - name: Test non-UI components (no real desktop actions)
         timeout-minutes: 3
         shell: pwsh
-        run: |
-          python -m pytest tests/test_approvals.py tests/test_chatgpt_auth.py tests/test_chatgpt_provider.py tests/test_demo_engine.py tests/test_demo_worker.py tests/test_native_agent.py -m "not desktop" -vv --timeout=30 --timeout-method=thread *> test-log.txt
-          $code = $LASTEXITCODE
-          Get-Content test-log.txt
-          if ($code -ne 0) {
-            $last = Get-Content test-log.txt | Where-Object { $_ -match '^tests[/\\].*::test_' } | Select-Object -Last 1
-            Write-Output "::error::Non-UI tests failed or timed out. Last test: $last"
-            exit $code
-          }
+        run: ./scripts/windows_test_runner.ps1 -Files tests/test_approvals.py,tests/test_chatgpt_auth.py,tests/test_chatgpt_provider.py,tests/test_demo_engine.py,tests/test_demo_worker.py,tests/test_native_agent.py
       - name: Test Qt preview offscreen
+        if: always()
         timeout-minutes: 3
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
           VOX_REQUIRE_UI_TESTS: '1'
         shell: pwsh
-        run: |
-          python -m pytest tests/test_ui_demo.py -vv --timeout=30 --timeout-method=thread *> test-log.txt
-          $code = $LASTEXITCODE
-          Get-Content test-log.txt
-          if ($code -ne 0) {
-            $last = Get-Content test-log.txt | Where-Object { $_ -match '^tests[/\\].*::test_' } | Select-Object -Last 1
-            Write-Output "::error::Qt tests failed or timed out. Last test: $last"
-            exit $code
-          }
+        run: ./scripts/windows_test_runner.ps1 -Files tests/test_ui_demo.py
   installer:
     runs-on: windows-latest
     timeout-minutes: 30
