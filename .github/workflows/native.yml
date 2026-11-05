@@ -1,0 +1,77 @@
+name: Native foundation
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - tests/test_approvals.py
+          - tests/test_chatgpt_auth.py
+          - tests/test_chatgpt_provider.py
+          - tests/test_demo_engine.py
+          - tests/test_demo_worker.py
+          - tests/test_native_agent.py
+          - tests/test_groq_voice.py
+          - tests/test_handsfree.py
+          - tests/live_engine/test_timeline.py
+          - tests/live_engine/test_endpointing_control.py
+          - tests/live_engine/test_turn_manager_replay.py
+          - tests/live_engine/test_wake.py
+          - tests/live_engine/test_entities_glossary.py
+          - tests/live_engine/test_contextualiser.py
+          - tests/live_engine/test_memory.py
+          - tests/live_engine/test_retrieval.py
+          - tests/live_engine/test_prompt_assembly.py
+          - tests/live_engine/test_streaming.py
+          - tests/live_engine/test_pipeline.py
+          - tests/test_ui_demo.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3" "pytest-timeout>=2.3,<3"
+      - name: Run isolated test file (no real desktop actions)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+          VOX_REQUIRE_UI_TESTS: '1'
+        run: |
+          $ErrorActionPreference = 'continue'
+          python -m pytest ${{ matrix.test }} -m "not desktop" -v --timeout=25 --timeout-method=thread 2>&1 | Tee-Object -FilePath pytest-output.txt
+          $code = $LASTEXITCODE
+          Write-Host "::notice::pytest exit code for ${{ matrix.test }}: $code"
+          if ($code -ne 0) {
+            "### pytest failure tail: ${{ matrix.test }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            '```text' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            Get-Content pytest-output.txt -Tail 150 | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            '```' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            if (Test-Path pytest-output.txt) {
+              $lines = Get-Content pytest-output.txt -Tail 100
+              for ($i = 0; $i -lt $lines.Count; $i += 25) {
+                $end = [Math]::Min($i + 24, $lines.Count - 1)
+                $chunk = ($lines[$i..$end] -join "`n")
+                $escaped = $chunk -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+                Write-Host ('::error title=pytest failure tail part ' + ([int]($i / 25) + 1) + '::' + $escaped)
+              }
+            }
+          }
+          exit $code
+  lint:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e ".[dev,voice]" "PySide6-Essentials==6.8.3"
+      - run: python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py scripts/memory_bench.py scripts/pipeline_bench.py
+      - run: python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py scripts/live_engine_baseline.py scripts/wake_bench.py scripts/context_bench.py scripts/memory_bench.py scripts/pipeline_bench.py
+      - run: python -m mypy

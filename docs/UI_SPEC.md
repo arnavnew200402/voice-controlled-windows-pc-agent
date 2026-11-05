@@ -22,3 +22,13 @@ Entering items: 240 ms, stagger 40 ms, blur 8 px → 0 + 4 px rise. Newest trans
 - Not Qt Quick/QML; no `ShaderEffect` (CSS `drop-shadow` filter + SVG dash animation instead).
 - No Win32 window flags: "click-through when idle" is approximated by `pointer-events` limited to the pill; no fullscreen auto-hide; no multi-monitor/DPI re-positioning logic beyond the browser's.
 - No measured frame-time numbers in this repo (headless browser could not launch in the build sandbox). The Perf tab measures them live in your browser; `scripts/ui-capture.mjs` automates capture.
+
+## Native Qt Quick design studio (2026-11-04, prototype)
+
+A separate PySide6/QML preview was added under `vox/ui/`; the web tokens and measurements above still describe only the web reference. It uses one `ShapePath` with concave ears, a shared `Theme.qml`, a synthetic waveform, and animated width/height transitions with 300 ms `OutCubic` easing (150 ms with reduce motion). The studio selects Idle, Wake, Listening, Thinking, Acting, Approval, Speaking, Error, Echo and Panel; all content is demo data. The approval and quick-panel controls on the notch are non-interactive, and the entire notch is click-through. The studio now has separate controls for a connected, in-memory sandbox approval demonstration. There is no hover, spring, real level input, privacy indicator, fullscreen handling, Win32 probing or secure approval yet. The synthetic waveform stops in reduce-motion mode.
+
+`artifacts/ui/native/` contains offscreen software-rendered Qt captures and `frame-intervals.json`. These are Linux headless smoke-test captures, not visual approval on Windows. The interval harness forces updates and idle produced zero frame samples; the numbers are **not** a Windows GPU/frame-time acceptance measurement or an idle-CPU measurement. Re-run on actual Windows hardware and add proper transition, reversal, continuous-waveform, DPI and hit-testing gates before claiming M6 complete.
+
+## Connected sandbox demo
+
+The studio can simulate opening Notepad or deleting files. The notch receives state, tool and reply events from a worker; approval, denial and stop are handled in the studio, and simulated evidence is shown as the status. The sandbox is explicitly labelled and does not touch the PC. `studio-sandbox-approval.png` and `notch-sandbox-approval.png` are offscreen captures of this flow. No real voice, model, production approval, privacy event or native tool has been connected.

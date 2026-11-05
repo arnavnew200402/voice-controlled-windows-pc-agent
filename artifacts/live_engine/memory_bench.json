@@ -1,0 +1,32 @@
+{
+  "phase": "LE3",
+  "environment": "Linux sandbox timings (not Tier-B hardware)",
+  "retrieval_by_index_size": {
+    "254": {
+      "p50_ms": 0.312,
+      "p95_ms": 0.958
+    },
+    "1254": {
+      "p50_ms": 0.83,
+      "p95_ms": 3.123
+    },
+    "6254": {
+      "p50_ms": 5.024,
+      "p95_ms": 21.602
+    }
+  },
+  "checkpoint_restore": {
+    "events": 500,
+    "actions": 100,
+    "checkpoint_ms": 80.37,
+    "restore_ms": 2.23,
+    "restored_events": 500,
+    "restored_actions": 100
+  },
+  "layer_sizes": {
+    "user_card_approx_tokens": 48,
+    "user_card_budget": 400,
+    "preferences_approx_tokens": 53,
+    "preferences_budget": 300
+  }
+}

@@ -1,30 +1,51 @@
 # STATE
 
-**Milestone:** web reference build complete (covers M0, M5 reference, M3 reference, M4-lite, M6-web). Windows native milestones not started.
+**Milestone:** Real Groq voice vertical slice in progress, now with hands-free “Hi Vox” wake word (on-device Vosk spotting; Record/Finish buttons removed). Folder opening, safe text typing, scroll, window management (minimize/maximize/restore/close), file operations (copy/move/delete), screenshots, clipboard write (exact approved text only; the clipboard is never read), read-only system info, and more built-in apps now implemented and fake-tested. The complete voice-first Windows agent and M1–M8 exit criteria remain unmet. The user changed provider priority from ChatGPT OAuth to Groq API key. **Live Command Engine program (LE0–LE7) started 2026-11-05** per the user-supplied spec: timeline/turn-manager/memory/contextualiser/streaming behind `engine.mode=legacy|live` (default legacy); see `docs/LIVE_ENGINE_PLAN.md`.
 
-## Done (verified by running)
-- M0 audit: `AUDIT.md` (both upstream suites actually run; results recorded).
-- Safety: tiers, escalation, bound approvals, redaction, audit log — **25/25 red-team cases pass** (`artifacts/redteam.json`).
-- Router: hysteresis, mid-task failover (RT-22), offline guard counters (RT-21).
-- Tools: ~45 tools on a Postgres virtual PC with evidence read-back.
-- Notch UI: SVG shape with concave ears, spring animation, 10 states, echo HUD, approval card, hover panel, mode badge, privacy dots, reduce-motion, EN/HI strings.
-- `npx next typegen`, `tsc --noEmit`, `npm run build`, `build_and_start` pass (see FINAL_REPORT).
+## Done
+- Existing web reference and native simulation remain developer-only. The installed native UI is now connected to real (not simulated) Groq push-to-talk services.
+- User-entered Groq key is DPAPI-protected per Windows account, removable in UI, never logged; no real key used in tests.
+- Hands-free wake loop: with the toggle on, an offline Vosk small-en recognizer (bundled in the installer, or downloaded once on first enable from source installs) spots “Hi Vox” and common mis-hearings locally; no audio leaves the PC until the wake phrase. The request is then captured to memory with silence endpointing (max 15 s), sent to Groq Whisper STT → chat tool calling, with optional Orpheus TTS/WAV playback; listening resumes automatically. Mic/network indicators are always visible; TTS runs only while the microphone phases are closed. No screen capture except approved screenshots.
+- Closed action registry: Notepad, Calculator, Paint, Browser, Email, Settings, FileExplorer, Calendar, Photos, MediaPlayer, HTTPS websites, known/absolute local folders, exact text typing, scroll, window management (minimize/maximize/restore/close), file operations (copy/move/delete), screenshots, clipboard write of exact approved text (clipboard reads are not implemented by design), and read-only system information. All consequential actions require single-use, argument-bound approval. Websites, folders and typing require single-use, argument-bound 15-second click approval; dry run available. Model-supplied paths, shell commands, arbitrary apps, control/bidi characters and unsupported tools are rejected. Window titles and handles are never sent to Groq; the user selects the target locally.
+- Linux 2026-11-05: **263 passed, 1 Windows-only DPAPI skipped** (161 LE0 + 31 LE1 + 15 LE1b + 22 LE2 + 11 LE3 + 23 LE4); Ruff, formatting, mypy and Qt offscreen tests passed, using fakes and no real network/microphone/desktop actions. Screenshots: `artifacts/ui/native/groq-voice.png`, `artifacts/ui/native/groq-voice-folder-typing.png`, `artifacts/ui/native/groq-handsfree.png` (Linux offscreen, not Windows evidence).
+- Windows Groq installer builds succeed routinely in CI (latest verified below); see `WINDOWS_TEST_CHECKLIST.md` for the physical validation procedure. The older ChatGPT-only preview artifact is not a Groq installer.
 
-## Not verified / not done
-- No browser screenshots or frame-time numbers: headless Chromium could not launch (missing system libs, no root). `scripts/ui-capture.mjs` is ready to run elsewhere.
-- Everything Windows-native (see `BACKLOG.md`).
+## In progress / limitations
+- No end-to-end live Groq, microphone, TTS, DPAPI or desktop validation on Windows. Groq model access, quotas and costs depend on the user's account. Sandbox cannot reach Groq.
+- The voice flow is hands-free wake word or typed text; there is no speaker verification (anyone in earshot can say “Hi Vox”, so click approval still gates consequential actions), no loopback verification, persistent task engine, general PC automation beyond the named registry, production audit, protected policy integration, isolated workers or offline mode. Wake-word accuracy/false-accept rate and same-breath “Hi Vox open …” phrasing are unvalidated on a real microphone (first physical report: wake phrase not recognized; matcher now accepts common mis-hearings and the UI shows a local “Heard locally” readout plus mic-level meter for diagnosis — pause briefly after the wake phrase). Website, folder, typing, scroll, window-management, and file-operation approval are local UI clicks, not verified physical-input security boundaries. Window foreground/focus can change between selection and SendInput; results report that honestly.
+- Stop is cooperative and cannot undo actions already started or immediately preempt all network calls/playback; website approval is revoked on stop.
+- Groq installer runs have completed successfully through commit `eaf316a` (hands-free wake word; run 41887695754, artifact `13351643306`, 89.1 MB including the bundled offline wake model). Installer smoke tests do not validate live Groq, microphone, DPAPI or real desktop actions.
+- Windows "Native foundation" has been fully green since run [41881288166](https://github.com/arnavnew200402/voice-controlled-windows-pc-agent/actions/runs/41881288166) (`c3f1cb2`); run 41887695781 (`eaf316a`) again passed lint plus all per-file jobs including the new hands-free and reworked UI tests on `windows-latest`. The previously failing jobs were caused by platform-specific mypy unused-ignore reports and by oversized pytest parametrize IDs exceeding the Windows 32,767-char environment-variable limit, not by product code (see `BLOCKERS.md` item 12). This is fake/offscreen CI evidence only — not live Groq, microphone, DPAPI, desktop-action, or clean-VM install validation.
+- Prior ChatGPT and Ollama CLI paths are separate and experimental; no OAuth refresh/revocation. The old fake studio remains accessible only as a developer harness.
+- Full installer/signing/legal review, clean-VM install/uninstall, safety/red-team/benchmark, real Windows DPI/focus, and milestone acceptance remain open. No merge to main before required exit criteria pass.
 
 ## Next 5 tasks
-1. Run `scripts/ui-capture.mjs` on a machine with a browser; commit screenshots + frame times to `artifacts/ui/`.
-2. Start the Python `vox` package from Wyzer: port `policy.py`, `approvals.py`, `redact.py` 1:1 and the red-team suite.
-3. Qt Quick notch from `UI_SPEC.md`.
-4. Socket-level offline guard + firewall test.
-5. Windows CI (`windows-latest`) running upstream suites for a real baseline.
+1. Keep the Windows matrix green on each commit (first fully green run: 41881288166); treat any new failure's annotation failure-tail as the first diagnostic, without treating CI as live validation.
+2. Test Groq key storage, microphone permissions, live transcription/chat/TTS, playback and the supported app, folder and typing actions on a disposable Windows 10/11 system with user-provided authorized key.
+3. Build a reviewed, argument-bound policy/audit and cancellation isolation before broadening desktop, browser and file tools; extend tests including prompt injection and approvals.
+4. Implement remaining task engine, voice/wake-word/audio loopback protections, robust hotkeys, full Windows integration, and honest capability reporting.
+5. Complete offline mode, model acceptance benchmarks, installer signing/legal review, clean-VM install/uninstall, soak and desktop tests before merging.
+
+## Live Command Engine (LE phases; one commit per task, suite+CI green per phase)
+- LE0 **done** (2026-11-05): audit + `docs/LIVE_ENGINE_PLAN.md`, decisions L-01…L-10 logged, baseline `artifacts/live_engine/baseline.json` (legacy replay p50 plan 0.010 ms; request = 2 messages/no history/7,763 B; wake text-matcher FR 2/20, FA 0/20; audio metrics `not_measured` — sandbox limits).
+- LE1 **done** (2026-11-05): `vox/engine/` timeline/events/Clock/turn-manager/endpointing/control-plane + cancellable `WinsoundPlayer` (20 ms cancel poll; legacy `speak` now stoppable mid-utterance) + virtual-clock replay harness; edge cases 1, 2, 4, 5, 6, 14, 27 green (29 tests in `tests/live_engine/`); cancel ≤150 ms proven in virtual time only. Next: LE1b.
+- LE1b **done** (2026-11-05, engine level): `TwoStageWake` + `WakeSession` (gate→partial detect→confidence verify, preroll command audio, wake timeout, suspend/half-duplex/loopback guards, privacy indicator states, calibrate math), phrase sets from `WakeSettings`+i18n ("hai vox" fixed, "folks" excluded), `scripts/wake_bench.py` + `docs/SPEECH_BENCH.md` (audio FA/FR still `not_measured` → Windows corpus). Edge cases 29–36 green (virtual time). Next: LE2.
+- LE2 **done** (2026-11-05): entity registry (TTL/ordinals/actions), glossary (ASR repair + confirm-gated proposals), code contextualiser (references, corrections, ambiguity→clarification, EN/HI/Hinglish + pinned reply language) with validated small-model fallback (hallucinated ids dropped), Groq `transcribe_detailed`; edge cases 3, 10, 16, 17, 24, 25 green.
+- LE3 **done** (2026-11-05): actions ledger (deterministic; contradiction/undo queries), user card + preferences sheet (JSON, atomic), SQLite WAL session store (`%LOCALAPPDATA%\vox\session\`, transcript text only on opt-in, delete-session-data, crash restore with unfinished tools marked unknown + approvals expired by construction), BM25+phonetic device index (p95 21.6 ms @6.25k chunks). Edge cases 11, 12, 21 green. LE4 next: prompt v2 + streaming pipeline + UI wiring.
+- LE4 **done** (2026-11-05) behind opt-in `engine.mode=live` (legacy remains default): prompt v2 cache-ordered assembly (static prefix 4,605 B / 77.8% of the 5,919 B bench prompt, byte-stable across dynamic variants; assembly p95 0.049 ms in the Linux fake bench), Groq SSE streaming with incremental tool-call assembly, early SAFE-tool dispatch before the next stream event (virtual-clock TTFT scenarios recovered exactly), meta-tools/acks, and the existing click-approval card wired to pipeline pending actions (voice never approves). The Groq UI now has a persisted Live/Legacy toggle, streamed typed + hands-free live paths, understood-command/history display, and a repeat control. Edge cases 13, 15, 23 are green; dictation is captured verbatim but **not typed yet** (LE5). Provider TTFT/cache hit-rate, live Groq, microphone/TTS, and real desktop actions remain `not_measured` in this sandbox; wake settings/calibrate and memory/profile QML editors remain deferred (BACKLOG LE5-02). LE5 next: background memory, task stack, input lock, undo, dictation.
+- LE6: per-turn fallback/hedging (bench-gated), latency waterfall, screen notes. LE7: full verification + A/B vs baseline; flip default only on parity+.
+
+## Blockers
+No Windows desktop or microphone here; outbound sandbox access excludes Groq. GitHub Actions artifacts cannot be downloaded into the workspace because their storage host is outside the allowlist. See `BLOCKERS.md`.
 
 ## Commands
+Windows Python 3.11+:
+```powershell
+python -m pip install -e ".[dev,ui,voice]"
+python -m vox --ui
+python -m pytest -m "not desktop" -q
+python -m ruff check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py
+python -m ruff format --check vox tests scripts/capture_native_ui.py scripts/windows_entry.py scripts/collect_preview_licenses.py
+python -m mypy
 ```
-npm run build && npx next start          # app
-curl -X POST localhost:3000/api/redteam  # red-team suite (resets sandbox)
-npx tsc --noEmit                         # types
-PW=<playwright index.mjs> node scripts/ui-capture.mjs   # UI harness
-```
+Linux sandbox: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software VOX_REQUIRE_UI_TESTS=1 LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.python-deps python -m pytest -m 'not desktop' -q`. Offscreen entry smoke: `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software LD_LIBRARY_PATH=.python-deps/qt-libs/runtime PYTHONPATH=.:.python-deps python scripts/windows_entry.py --smoke-test`. `.python-deps` contains scratch-only dependencies and is not shipped.

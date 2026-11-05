@@ -1,0 +1,36 @@
+{
+  "phase": "LE1b",
+  "environment": "Linux sandbox (text level) \u2014 audio level needs Windows + bundled model",
+  "text_level_by_sensitivity": {
+    "low": {
+      "corpus": 14,
+      "false_accepts": [],
+      "false_accept_rate": 0.0,
+      "false_rejects": [],
+      "false_reject_rate": 0.0
+    },
+    "balanced": {
+      "corpus": 14,
+      "false_accepts": [],
+      "false_accept_rate": 0.0,
+      "false_rejects": [],
+      "false_reject_rate": 0.0
+    },
+    "high": {
+      "corpus": 14,
+      "false_accepts": [],
+      "false_accept_rate": 0.0,
+      "false_rejects": [],
+      "false_reject_rate": 0.0
+    }
+  },
+  "gate_and_cost": {
+    "quiet_frames_skipped_pct": 100.0,
+    "matcher_plus_gate_ms_per_frame": 0.2824,
+    "note": "Excludes Vosk inference (model unavailable in sandbox)."
+  },
+  "audio_level": {
+    "status": "not_measured",
+    "reason": "no --corpus directory given"
+  }
+}

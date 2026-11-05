@@ -1,0 +1,24 @@
+{
+  "phase": "LE2",
+  "environment": "Linux sandbox, no model/key; oracle-scripted LLM arm",
+  "wer": {
+    "corpus": 14,
+    "mean_wer_without_glossary": 0.562,
+    "mean_wer_with_glossary": 0.0,
+    "remaining_errors": []
+  },
+  "contextualiser_ab": {
+    "cases": 10,
+    "code_only_accuracy": 0.9,
+    "auto_with_oracle_llm_accuracy": 1.0,
+    "oracle_calls": 1,
+    "code_misses": [
+      "close it"
+    ],
+    "code_latency_ms": {
+      "p50": 0.12,
+      "p95": 0.177
+    },
+    "note": "Oracle LLM = scripted perfect answers; measures routing, not a real model."
+  }
+}
